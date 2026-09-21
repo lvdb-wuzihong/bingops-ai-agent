@@ -49,4 +49,4 @@ EXPOSE 8080
 #   CronJob    args: ["report", "--config", "/app/config/inspection.yaml"]
 #   Deployment args: ["bot",    "--config", "/app/config/inspection.yaml"]
 ENTRYPOINT ["python", "-m", "inspection_agent"]
-CMD ["report", "--config", "/app/config/inspection.yaml"]
+CMD ["bot", "--config", "/app/config/inspection.yaml"]
