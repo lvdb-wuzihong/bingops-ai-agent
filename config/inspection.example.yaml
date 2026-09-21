@@ -94,7 +94,9 @@ feishu:                       # P2-charter 出站统一走平台 send_feishu_mes
 
 mcp_servers:                  # 双轨制后仅 bot（LLM 工具发现/执行）使用；pipeline 不再读此段
   bingops:                    # 兼作出站通道（send_feishu_message 写工具，需平台开写开关）
-    url: http://127.0.0.1:8000/mcp
+    # 尾斜杠建议带上（避免 FastAPI mount 307 重定向）；平台需把 agent 访问用的
+    # host:port 加入 MCP_ALLOWED_HOSTS（MCP 端点 DNS rebinding 防护，缺失返回 421）
+    url: http://127.0.0.1:8000/mcp/
     headers: {}
   prometheus:
     url: http://127.0.0.1:8081/mcp

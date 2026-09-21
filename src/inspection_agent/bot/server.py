@@ -60,7 +60,18 @@ def create_app(
             config.mcp_servers, timeout_sec=config.query.per_app_timeout_sec
         )
         if own_pool:
-            await active_pool.__aenter__()
+            try:
+                await active_pool.__aenter__()
+            except Exception as exc:  # noqa: BLE001 连接失败必须给出可读原因后退出
+                # 常见失败：平台 MCP 端点 DNS rebinding 防护拦截（HTTP 421 Invalid Host
+                # header）——需在平台 MCP_ALLOWED_HOSTS 白名单加入 agent 访问用的 host:port
+                logger.error(
+                    "bot 启动失败：bingops-mcp 连接失败（%s）。"
+                    "排查方向：mcp_servers.bingops.url 可达性；"
+                    "平台 MCP_ALLOWED_HOSTS 是否包含 agent 访问用的 host:port",
+                    exc,
+                )
+                raise
         try:
             if state["agent"] is None:
                 state["agent"] = await build_agent(config, active_pool)
