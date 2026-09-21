@@ -11,7 +11,7 @@ import logging
 import os
 from dataclasses import dataclass
 
-from ..config import AppConfig
+from ..config import AppConfig, ExternalEndpointConfig
 from .bingops import BingopsSource
 from .gitlab import GitLabSource
 from .platform_client import PlatformClient
@@ -63,8 +63,22 @@ def build_sources(config: AppConfig) -> Sources:
 
     if not config.prometheus_instances:
         raise SourceError("external.prometheus 未配置（步骤③ 指标取数必需）")
+
+    def _evidence_path(cfg: ExternalEndpointConfig) -> str:
+        # 图表 UI 路径：Prometheus=/graph；VictoriaMetrics=/vmui/（集群版 vmselect 同理，
+        # base_url 直接填 /select/<accountID>/prometheus 前缀，多租户每租户一个实例条目）
+        if cfg.evidence_ui not in ("graph", "vmui"):
+            raise SourceError(
+                f"external.prometheus 实例 evidence_ui 仅支持 graph / vmui（当前值: {cfg.evidence_ui}）"
+            )
+        return "/vmui/" if cfg.evidence_ui == "vmui" else "/graph"
+
     prometheus = {
-        name: PrometheusSource(cfg.base_url, timeout_sec=cfg.timeout_sec)
+        name: PrometheusSource(
+            cfg.base_url,
+            timeout_sec=cfg.timeout_sec,
+            evidence_path=_evidence_path(cfg),
+        )
         for name, cfg in config.prometheus_instances.items()
     }
 

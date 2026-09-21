@@ -45,14 +45,11 @@ STRUCT = {
     "changes": [
         {"app_name": "订单中心", "tag": "v1.2.3", "status": "failed", "ticket_no": "T-77"}
     ],
-    "alerts": {
-        "window_total": 1,
-        "unrecovered_total": 0,
-        "by_severity": {"2": 1},
-        "ungrouped_window_total": 0,
-        "ungrouped_active_total": 0,
+    "governance": {
+        "missing_reasons": {
+            "故障应用": "数据缺失：prometheus query_range 请求失败: HTTP 404",
+        },
     },
-    "governance": {},
     "teams": ["t1"],
 }
 
@@ -135,6 +132,19 @@ def test_verify_flags_extra_url():
 def test_verify_flags_missing_section():
     violations = verify_narrative(make_narrative(STRUCT, drop="section"), STRUCT)
     assert any("缺少段落标题" in v for v in violations)
+
+
+def test_verify_allows_numbers_from_payload_strings():
+    """payload 字符串字段（容错声明的错误码等）中的数字允许 LLM 逐字引用（契约对称）。"""
+    text = make_narrative(STRUCT) + "\n  - 故障应用监控查询返回 404，需检查实例路径"
+    assert verify_narrative(text, STRUCT) == []
+
+
+def test_verify_still_flags_fabricated_numbers():
+    """payload 中完全不存在的数字依然拒绝（防幻觉闸门不受字符串白名单影响）。"""
+    text = make_narrative(STRUCT) + "\n  - 集群共 777 个节点需关注"
+    violations = verify_narrative(text, STRUCT)
+    assert any("不在契约内" in v for v in violations)
 
 
 # ---------------------------------------------------------------- render_narrative（降级路径在集成测试覆盖）

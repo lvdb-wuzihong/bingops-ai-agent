@@ -40,13 +40,20 @@ class WindowStats:
 
 
 class PrometheusSource:
-    def __init__(self, base_url: str, timeout_sec: float = 30.0) -> None:
+    def __init__(
+        self, base_url: str, timeout_sec: float = 30.0, evidence_path: str = "/graph"
+    ) -> None:
         self._base = (base_url or "").rstrip("/")
         self._timeout = timeout_sec
+        self._evidence_path = evidence_path  # 图表 UI 路径：/graph（Prometheus）或 /vmui/（VM）
 
     @property
     def base_url(self) -> str:
         return self._base
+
+    @property
+    def evidence_path(self) -> str:
+        return self._evidence_path
 
     async def query_range(
         self, promql: str, start: datetime, end: datetime, step_seconds: int

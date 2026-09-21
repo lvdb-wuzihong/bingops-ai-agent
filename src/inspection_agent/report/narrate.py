@@ -178,7 +178,12 @@ def _collect_urls(struct: dict[str, Any]) -> set[str]:
 
 
 def _allowed_numbers(struct: dict[str, Any], window_hours: int | None) -> set[float]:
-    """数字白名单：结构化 JSON 全部数字 ∪ 常见计数 {0-9, 100} ∪ 窗口小时数。"""
+    """数字白名单：结构化 JSON 数值字段 ∪ 字符串字段中的数字 ∪ {0-9, 100} ∪ 窗口小时数。
+
+    字符串字段（如 governance.missing_reasons 的容错声明含错误码 HTTP 404）同样允许
+    LLM 逐字引用——payload 内文本与正文校验必须对称，否则契约自相矛盾；
+    引用时同样先剥 URL/日期/标识符（与正文校验同一套规则）。
+    """
     allowed = set(_COMMON_NUMBERS)
 
     def walk(node: Any) -> None:
@@ -186,6 +191,11 @@ def _allowed_numbers(struct: dict[str, Any], window_hours: int | None) -> set[fl
             return
         if isinstance(node, (int, float)):
             allowed.add(float(node))
+        elif isinstance(node, str):
+            text = _DATETIME_RE.sub(" ", _URL_RE.sub(" ", node))
+            text = _IDENTIFIER_RE.sub(" ", text)
+            for token in _NUMBER_RE.findall(text):
+                allowed.add(float(token))
         elif isinstance(node, dict):
             for value in node.values():
                 walk(value)

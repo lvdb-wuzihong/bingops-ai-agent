@@ -54,6 +54,7 @@ class MetricSnapshot:
     series: list[MetricSeries]
     daily: list[DailyStat] = field(default_factory=list)  # P1.5 趋势日聚合（trend.enabled 时填充）
     prom_base_url: str = ""  # 采集来源实例 base_url（多监控源定向，证据链接用）
+    evidence_path: str = "/graph"  # 来源实例图表 UI 路径（/graph=Prometheus，/vmui/=VM）
 
 
 @dataclass
@@ -379,7 +380,8 @@ async def _run_metric_query(
         step_seconds=config.step_seconds,
         stats=window_stats(series),
         series=series,
-        prom_base_url=prom.base_url,  # 证据链接跟随应用所属实例（多监控源定向）
+        prom_base_url=prom.base_url,    # 证据链接跟随应用所属实例（多监控源定向）
+        evidence_path=prom.evidence_path,
     )
 
 

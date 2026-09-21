@@ -44,7 +44,7 @@ def full_series(value: float, count: int = 288) -> list[MetricSeries]:
 
 def make_snapshot(
     metric: str, values: list[float], resource_name: str = "node-1",
-    prom_base_url: str = "",
+    prom_base_url: str = "", evidence_path: str = "/graph",
 ) -> MetricSnapshot:
     series = [MetricSeries(labels={"instance": resource_name}, values=values)]
     return MetricSnapshot(
@@ -57,6 +57,7 @@ def make_snapshot(
         stats=window_stats(series),
         series=series,
         prom_base_url=prom_base_url,
+        evidence_path=evidence_path,
     )
 
 
@@ -266,6 +267,25 @@ def test_prom_evidence_follows_snapshot_instance():
     cpu = next(a for a in anomalies if a["rule"] == "cpu_high")
     assert disk["evidence_url"].startswith("https://vm-waibu.example.com/graph?")
     assert cpu["evidence_url"].startswith("http://vm-neibu:8428/graph?")
+
+
+def test_prom_evidence_vmui_path():
+    """VictoriaMetrics 实例：证据链接走 /vmui/（集群版 vmselect 前缀同样适用）。"""
+    ctx = RulesContext(
+        thresholds=Thresholds(),
+        window_start=WS, window_end=WE, trend=TrendConfig(),
+    )
+    app = make_app(metrics=[
+        make_snapshot(
+            "disk", [96.0] * 288,
+            prom_base_url="http://vmselect:8481/select/0/prometheus",
+            evidence_path="/vmui/",
+        ),
+    ])
+    anomalies, _ = evaluate_app(app, ctx)
+    url = anomalies[0]["evidence_url"]
+    assert url.startswith("http://vmselect:8481/select/0/prometheus/vmui/?")
+    assert "g0.expr" in url and "g0.range_input=24h" in url
 
 
 def _config_stub():

@@ -73,9 +73,12 @@ platform:                     # bingops 平台 REST（pipeline 取数路径，�
 external:                     # 外部系统直连（pipeline 取数路径）
   prometheus:                          # 监控实例表（多业务/跨 VPC 定向巡检）
     neibu:                             # 实例名自定义；未路由团队兑底 = 声明顺序第一个
-      base_url: http://vm-neibu:8428   # VictoriaMetrics 兼容 query_range API
+      base_url: http://vm-neibu:8428   # VictoriaMetrics 单机；集群版填 vmselect 前缀：
+      #   http://vmselect:8481/select/<accountID>/prometheus（多租户每租户一个实例条目）
+      evidence_ui: vmui                # 图表 UI：graph=Prometheus /graph；vmui=VictoriaMetrics /vmui/
     waibu:                             # 对外 VPC 监控入口（内网打通或公网 HTTPS+鉴权）
       base_url: https://vm-waibu.example.com
+      evidence_ui: vmui
   # 旧单实例写法仍兼容：prometheus: {base_url: http://prometheus:9090} 等价于名为 default 的实例
   gitlab:
     base_url: https://git.example.com

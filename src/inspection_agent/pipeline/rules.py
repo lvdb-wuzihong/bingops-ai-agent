@@ -308,7 +308,8 @@ def _num(value: float) -> float:
 def _prom_evidence(ctx: RulesContext, snapshot: MetricSnapshot, expr: str, days: int = 1) -> str:
     """Prom 图证据链接，指向应用所属监控实例（多监控源定向）；
 
-    窗口时长来自评估上下文，base_url 来自采集快照；
+    窗口时长来自评估上下文，base_url 与图表 UI 路径来自采集快照
+    （/graph=Prometheus，/vmui/=VictoriaMetrics）；
     未配置 base_url 时以表达式本身为证据（契约要求非空，禁止编造）。
     """
     base_url = snapshot.prom_base_url
@@ -316,4 +317,4 @@ def _prom_evidence(ctx: RulesContext, snapshot: MetricSnapshot, expr: str, days:
         return expr
     hours = max(1, int((ctx.window_end - ctx.window_start).total_seconds() // 3600)) * days
     params = urlencode({"g0.expr": expr, "g0.range_input": f"{hours}h", "g0.tab": 0})
-    return f"{base_url.rstrip('/')}/graph?{params}"
+    return f"{base_url.rstrip('/')}{snapshot.evidence_path}?{params}"

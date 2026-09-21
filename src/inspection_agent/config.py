@@ -155,6 +155,7 @@ class ExternalEndpointConfig:
     token_env: str = ""                 # 空 = 无鉴权
     token_header: str = "Authorization" # Authorization → Bearer 前缀；其他 header 名用裸 token
     timeout_sec: float = 30.0
+    evidence_ui: str = "graph"          # 监控图表 UI：graph=Prometheus /graph；vmui=VictoriaMetrics /vmui/
 
 
 @dataclass(frozen=True)
