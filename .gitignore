@@ -1,0 +1,47 @@
+# ---- Python 运行时产物 ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# ---- 工具缓存 ----
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+# ---- 虚拟环境 ----
+.venv/
+venv/
+
+# ---- 巡检产物（out/<日期>/anomalies.json + report.txt + report.html）----
+out/
+
+# ---- 凭据与环境（config 仅存 env 名，真实凭据走 Secret 注入，绝不入库）----
+.env
+.env.*
+*.pem
+*.key
+
+# ---- 真实运行配置（从 inspection.example.yaml 复制后本地使用，不入库）----
+config/inspection.yaml
+
+# ---- IDE / 编辑器 / 开发辅助（Qoder skill 仅本机开发时使用，不入仓库）----
+.idea/
+.vscode/
+*.swp
+.qoder/
+
+# ---- 操作系统 ----
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ---- 日志与临时文件 ----
+*.log
+*.tmp
+*.orig
+
+

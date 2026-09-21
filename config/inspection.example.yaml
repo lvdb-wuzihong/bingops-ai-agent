@@ -1,0 +1,150 @@
+# 巡检日报 agent 配置（结构 = .qoder/skills/inspection-agent-dev/reference.md §2）
+# 红线（SKILL.md）：阈值/检查项只允许在此维护，代码禁止硬编码；数字只来自规则引擎。
+
+window:
+  hours: 24            # 统计窗口长度；runner 按 --date 计算前一自然日 00:00 起 24h
+  step: 5m             # 指标查询步长
+
+schedule:              # 仅供部署参考，实际调度由外部 cron/schtasks 执行
+  cron: "0 10 * * *"   # 每日 10:00（用户要求），覆盖前一自然日 00:00-24:00
+  timezone: Asia/Shanghai
+
+teams:                 # 步骤①对象清单：按团队分批拉取（规避 list_business_apps 仅第 1 页限制）
+  - 平台组             # 联调时替换为真实团队名
+
+# CMDB model_code → 资源类别（步骤②检查项展开依据；联调校准点：以平台实际 model_code 为准）
+category_by_model:
+  ecs: host
+  ec2: host
+  gce: host
+  pod: pod
+  rds: rds
+  redis: redis
+
+checks:                # 资源类别 → 检查项（步骤②矩阵）
+  host: [cpu, memory, disk]
+  pod: [cpu, memory, restarts]
+  rds: [cpu, connections]
+  redis: [memory, connections]
+
+thresholds:            # 步骤⑥规则阈值（SKILL 异常判定规则表）
+  cpu_high_pct: 80
+  cpu_high_duration_min: 30
+  disk_warn_pct: 85
+  disk_crit_pct: 95
+  mem_high_pct: 90
+  mem_high_duration_min: 30
+  error_rate_5xx: 0.01 # 比例（0-1），expr 应返回比例而非百分比
+  pod_restart_min_count: 3
+
+# PromQL 表达式模板（联调校准点：label 与采集端/HTTP SD 实际对齐，见设计文档 §3.2）
+# {selector} 按资源类别构建（见 prometheus.label_map），{window} 替换为窗口小时数（如 24h）
+prom_queries:
+  host:
+    cpu: 100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{instance=~"{selector}", mode="idle"}[5m])))
+    memory: 100 * (1 - node_memory_MemAvailable_bytes{instance=~"{selector}"} / node_memory_MemTotal_bytes{instance=~"{selector}"})
+    disk: 100 * (1 - node_filesystem_avail_bytes{instance=~"{selector}", fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{instance=~"{selector}", fstype!~"tmpfs|overlay|squashfs"})
+  pod:
+    # 联调校准：Pod CPU 利用率口径（相对 limit），需 kube-state-metrics
+    cpu: 100 * rate(container_cpu_usage_seconds_total{pod=~"{selector}", container!="", image!=""}[5m]) / on(namespace, pod) max by (namespace, pod) (kube_pod_container_resource_limits{resource="cpu", pod=~"{selector}"})
+    memory: 100 * container_memory_working_set_bytes{pod=~"{selector}", container!=""} / on(namespace, pod) max by (namespace, pod) (kube_pod_container_resource_limits{resource="memory", pod=~"{selector}"})
+    restarts: increase(kube_pod_container_status_restarts_total{pod=~"{selector}"}[{window}])
+  app:
+    # 应用级错误率（error_rate 规则专用，按 app_code 匹配；expr 返回比例 0-1）。
+    # 无此模板或查询无数据 → 该应用自动跳过 error_rate 规则（数据缺失语义）。
+    error_rate: sum(rate(http_server_requests_seconds_count{app_code=~"{selector}", status=~"5.."}[5m])) / sum(rate(http_server_requests_seconds_count{app_code=~"{selector}"}[5m]))
+  # rds/redis 依赖云监控/厂商导出器，表达式待联调补齐；缺模板的检查项自动跳过
+
+prometheus:
+  base_url: https://prom.example.com   # 证据链接拼接（Prom 图 URL）；留空则以 PromQL 表达式为证据
+  label_map:           # 应用级检查项（error_rate）selector 的 label 名；
+    app: app_code      # 资源级 label 名直接写在 prom_queries 模板内（避免与 PromQL 字面 {} 冲突）
+
+n9e:
+  base_url: http://n9e.example.com     # 证据链接拼接（夜莺事件详情页）；留空则以事件 ID 为证据
+
+bingops:
+  base_url: ""                         # 预留：工单链接拼接（P0 证据用 ticket_no，可为空）
+
+platform:                     # bingops 平台 REST（pipeline 取数路径，双轨制：pipeline 禁用 MCP）
+  base_url: http://127.0.0.1:8000
+  agent_token_env: BINGOPS_AGENT_TOKEN     # 直接 token 模式（联调期；ai_agent 角色签发）
+  username_env: BINGOPS_AGENT_USERNAME     # 或自动登录模式（生产长期运行，401 自动刷新）
+  password_env: BINGOPS_AGENT_PASSWORD
+  timeout_sec: 30
+
+external:                     # 外部系统直连（pipeline 取数路径）
+  prometheus:
+    base_url: http://prometheus:9090
+  gitlab:
+    base_url: https://git.example.com
+    token_env: GITLAB_TOKEN        # PRIVATE-TOKEN 认证；缺失则 git 线索跳过
+  # n9e 已下线（2026-09）：接入新告警源时在此外加 base_url/token_env 段
+
+feishu:                       # P2-charter 出站统一走平台 send_feishu_message（编排层零飞书凭据）
+  target_type: chat
+  chat_id_env: FEISHU_REPORT_CHAT_ID     # 日报推送目标群；bot 回复目标来自平台转发事件
+
+mcp_servers:                  # 双轨制后仅 bot（LLM 工具发现/执行）使用；pipeline 不再读此段
+  bingops:                    # 兼作出站通道（send_feishu_message 写工具，需平台开写开关）
+    url: http://127.0.0.1:8000/mcp
+    headers: {}
+  prometheus:
+    url: http://127.0.0.1:8081/mcp
+    headers: {}
+  # n9e MCP 已随夜莺下线（2026-09）
+  # gitlab:           # P2 git 线索：部署 GitLab 社区 MCP（如 @zereight/gitlab-mcp）后启用
+  #   url: http://127.0.0.1:8082/mcp
+  #   headers: {}
+  #   compare_tool: compare               # 以部署版本 tools/list 为准（sources/gitlab.py 适配）
+
+query:
+  per_app_timeout_sec: 30      # 单应用查询超时（超时标"数据缺失"）
+  report_deadline_sec: 300     # 整报全局 deadline（超时输出已完成部分 + 缺失声明）
+  list_limit_default: 20       # token 控制：列表默认
+  list_limit_max: 100          # token 控制：列表上限（list_business_apps 服务端上限一致）
+  app_concurrency: 8           # 步骤③按应用并发上限
+
+output:
+  out_dir: out                 # 产物目录：out/<日期>/anomalies.json + report.txt + report.html
+  archive_ticket_enabled: false            # 归档工单写操作默认关闭（SKILL 红线 2）
+
+llm:                           # P1 叙事层（OpenAI 兼容 API；enabled=false 时行为等同 P0）
+  enabled: false
+  base_url: https://api.example.com/v1     # POST {base_url}/chat/completions
+  api_key_env: LLM_API_KEY                 # 密钥从环境变量取，不入库不入码
+  model: deepseek-chat                     # 联调时替换（deepseek-chat / qwen-* 等）
+  temperature: 0.2                         # 低温度保数字稳定
+  timeout_sec: 60
+  max_tokens: 2000
+  token_budget: 4000                       # 送入 LLM 的 payload 字符上限（健康应用一行、异常应用明细）
+
+bot:                           # P2-charter：接收平台事件转发（POST /feishu/events）+ 出站走平台
+  enabled: false
+  port: 8080                   # 监听端口（K8S Service 暴露给平台回调；/healthz 探针）
+  max_history_per_chat: 20                 # 每 chat 保留最近 N 条（内存态，重启即失）
+  max_tool_iterations: 8                   # 工具调用轮上限，超限要求 LLM 基于已获取信息作答
+  tool_result_max_chars: 2000              # 单次工具结果截断长度（token 控制）
+  tool_allowlist: ~                        # ~ = 默认只读白名单（bot/tools.py）；仅可收窄，写工具永不开放
+
+trend:                         # P1.5 趋势对比（昨日 vs 前 N 日均值，落"风险提示（趋势类）"）
+  enabled: true
+  days: 7                      # 基线窗口（不含昨天）
+  step: 1h                     # 趋势查询步长（8 天 × 1h = 192 点/系列）
+  change_pct_threshold: 20     # |变化率| 阈值
+  min_delta: 5                 # 绝对差护栏（百分点），防小基数抖动
+
+oss:                           # P1.5 阿里云 OSS（完整 HTML 报告上传，签名 URL；凭据走环境变量）
+  enabled: false
+  endpoint_env: OSS_ENDPOINT
+  bucket_env: OSS_BUCKET
+  access_key_id_env: OSS_ACCESS_KEY_ID
+  access_key_secret_env: OSS_ACCESS_KEY_SECRET
+  object_prefix: inspection-report/
+  url_expires_sec: 604800      # 签名 URL 有效期（7 天）
+
+clues:                         # P2 根因线索（异常项挂四类线索：变更/告警/拓扑/git）
+  enabled: true
+  topology_depth: 2            # get_topology 展开深度（≤3 防爆炸）
+  git_compare: true            # GitLab tag compare 线索（需 mcp_servers.gitlab + repo_url 规范化）
+  per_anomaly_timeout_sec: 10

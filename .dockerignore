@@ -1,0 +1,14 @@
+# 构建上下文瘦身：镜像只需 pyproject.toml + src
+.git
+.qoder
+.pytest_cache
+.ruff_cache
+**/__pycache__
+**/*.py[cod]
+docs
+tests
+out
+.tmp*
+.env*
+Dockerfile
+.dockerignore

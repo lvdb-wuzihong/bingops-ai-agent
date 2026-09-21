@@ -1,0 +1,45 @@
+[project]
+name = "inspection-agent"
+version = "0.1.0"
+description = "BingOps Agent 编排层（一个 runtime + N 个 workflow）；巡检日报为第一个 workflow，六场景分期演进，定位与边界见 docs/project-charter.md"
+requires-python = ">=3.11"
+dependencies = [
+    # 客户端 pin 在 1.x：与 bingops 平台 bingops/mcp/server.py（mcp.server.fastmcp）同代兼容；
+    # mcp 2.x 已将 FastMCP 更名 MCPServer，客户端 API 亦有变化（见 py.sdk.modelcontextprotocol.io 迁移指南）
+    # 仅 bot（LLM 工具发现/执行）使用；pipeline 取数走平台/外部 REST（双轨制，见 docs/project-charter.md §2）
+    "mcp>=1.8,<2",
+    "httpx>=0.27",
+    "PyYAML>=6.0",
+    "tzdata>=2024.1",  # Windows 无系统时区库，ZoneInfo 需要
+    "oss2>=2.18",      # P1.5 阿里云 OSS（完整 HTML 报告上传）
+    "fastapi>=0.115",  # P2-charter：bot 接收平台事件转发（POST /feishu/events）+ 后续 workflow HTTP 端点
+    "uvicorn>=0.30",   # bot 常驻 ASGI 服务
+]
+
+[project.scripts]
+inspection-agent = "inspection_agent.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = [
+    # mcp 1.x 旧名别名（pin mcp<2 期间使用，迁移计划见 mcpclient.py 注释）
+    "ignore:Use `streamable_http_client` instead:DeprecationWarning",
+    # lark-oapi 内部使用已弃用的 utcfromtimestamp/get_event_loop（第三方库问题，待其升级）
+    "ignore:datetime.datetime.utcfromtimestamp:DeprecationWarning",
+    "ignore:There is no current event loop:DeprecationWarning",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
