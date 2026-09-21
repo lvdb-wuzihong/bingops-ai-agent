@@ -184,7 +184,7 @@ def build_platform_rest_app() -> Any:
         elif path.startswith("/api/v1/cmdb/apps/"):
             app_id = int(path.rsplit("/", 1)[1])
             send = _respond(send, 200, _ok({**APPS[app_id], "pipelines": []}))
-        elif path == "/api/v1/jobs":
+        elif path == "/api/v1/jobs/executions":
             send = _respond(send, 200, _ok({"items": JOBS, "total": len(JOBS)}))
         elif path == "/api/v1/tickets":
             send = _respond(send, 200, _ok({"items": TICKETS, "total": len(TICKETS)}))

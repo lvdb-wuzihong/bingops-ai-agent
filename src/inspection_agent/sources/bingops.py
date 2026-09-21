@@ -5,7 +5,7 @@ MCP 工具只留给 bot。端点/参数已按平台源码核对
 （bingops/api/v1/{cmdb/apps,jobs,tickets,cmdb/relationships}.py）：
 - GET /api/v1/cmdb/apps?team&page&page_size          （权限 cmdb_app:list）
 - GET /api/v1/cmdb/apps/{id}、/cmdb/apps/{id}/resources
-- GET /api/v1/jobs?status&page&page_size             （权限 job:list；无时间参数，客户端过滤）
+- GET /api/v1/jobs/executions?status&runbook_id&page&page_size  （权限 job:list；无时间参数，客户端过滤）
 - GET /api/v1/tickets?ticket_type=change&page&page_size（权限 ticket:list）
 - GET /api/v1/cmdb/resources/{id}/topology?depth     （权限 cmdb_resource:list；nodes+edges）
 """
@@ -45,7 +45,9 @@ class BingopsSource:
 
     async def list_job_executions(self) -> list[dict[str, Any]]:
         """执行记录（含 code_ref/target_resources）；REST 无时间参数，collect 客户端按窗口过滤。"""
-        data = await self._client.get("/api/v1/jobs", {"page": 1, "page_size": self._limit})
+        data = await self._client.get(
+            "/api/v1/jobs/executions", {"page": 1, "page_size": self._limit}
+        )
         return _page_items(data)
 
     async def list_change_tickets(self) -> list[dict[str, Any]]:
