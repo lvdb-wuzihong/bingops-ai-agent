@@ -53,6 +53,7 @@ class MetricSnapshot:
     stats: WindowStats | None
     series: list[MetricSeries]
     daily: list[DailyStat] = field(default_factory=list)  # P1.5 趋势日聚合（trend.enabled 时填充）
+    prom_base_url: str = ""  # 采集来源实例 base_url（多监控源定向，证据链接用）
 
 
 @dataclass
@@ -247,7 +248,8 @@ async def _app_inner(
     resources = overview.get("resources") if isinstance(overview, dict) else None
     app.resources = [r for r in (resources or []) if isinstance(r, dict)]
 
-    prom = sources.prometheus
+    # 多监控源定向巡检：按应用 team 路由到所属监控实例（指标与趋势同源）
+    prom = sources.prometheus_for(app.team)
 
     for resource in app.resources:
         category = config.category_by_model.get(str(resource.get("model_code", "")).lower())
@@ -377,6 +379,7 @@ async def _run_metric_query(
         step_seconds=config.step_seconds,
         stats=window_stats(series),
         series=series,
+        prom_base_url=prom.base_url,  # 证据链接跟随应用所属实例（多监控源定向）
     )
 
 

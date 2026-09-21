@@ -30,7 +30,6 @@ _FAILED_STATUS = {"failed", "error", "failure", "fail"}  # 联调校准：平台
 @dataclass(frozen=True)
 class RulesContext:
     thresholds: Thresholds
-    prom_base_url: str
     window_start: datetime
     window_end: datetime
     trend: TrendConfig
@@ -40,7 +39,6 @@ def evaluate_all(data: ReportData, config: AppConfig, sources: Sources) -> tuple
     """整报规则评估：异常列表（critical→warning→info 排序）+ 风险提示列表。"""
     ctx = RulesContext(
         thresholds=config.thresholds,
-        prom_base_url=sources.prometheus.base_url,
         window_start=data.window_start,
         window_end=data.window_end,
         trend=config.trend,
@@ -64,7 +62,7 @@ def evaluate_app(app: AppData, ctx: RulesContext) -> tuple[list[dict], list[dict
     for snapshot in app.metrics:
         if snapshot.stats is None:
             continue  # 无数据语义：渲染层写"无数据"，不产出异常，禁止编造
-        evidence = _prom_evidence(ctx, snapshot.expr)
+        evidence = _prom_evidence(ctx, snapshot, snapshot.expr)
         metric = snapshot.metric
         if snapshot.daily and ctx.trend.enabled:
             # P1.5 趋势判定（昨日 vs 前 N 日均值）→ 风险提示（趋势类）；证据用 8 天窗口
@@ -72,7 +70,7 @@ def evaluate_app(app: AppData, ctx: RulesContext) -> tuple[list[dict], list[dict
                 snapshot.daily, ctx.trend.change_pct_threshold, ctx.trend.min_delta
             )
             if change is not None:
-                trend_evidence = _prom_evidence(ctx, snapshot.expr, days=ctx.trend.days + 1)
+                trend_evidence = _prom_evidence(ctx, snapshot, snapshot.expr, days=ctx.trend.days + 1)
                 risks.append(_trend_risk(app, snapshot, trend_evidence, change, ctx.trend))
         if metric == "cpu":
             _pct_sustained(
@@ -307,10 +305,15 @@ def _num(value: float) -> float:
     return float(value)
 
 
-def _prom_evidence(ctx: RulesContext, expr: str, days: int = 1) -> str:
-    """Prom 图证据链接；未配置 base_url 时以表达式本身为证据（契约要求非空，禁止编造）。"""
-    if not ctx.prom_base_url:
+def _prom_evidence(ctx: RulesContext, snapshot: MetricSnapshot, expr: str, days: int = 1) -> str:
+    """Prom 图证据链接，指向应用所属监控实例（多监控源定向）；
+
+    窗口时长来自评估上下文，base_url 来自采集快照；
+    未配置 base_url 时以表达式本身为证据（契约要求非空，禁止编造）。
+    """
+    base_url = snapshot.prom_base_url
+    if not base_url:
         return expr
     hours = max(1, int((ctx.window_end - ctx.window_start).total_seconds() // 3600)) * days
     params = urlencode({"g0.expr": expr, "g0.range_input": f"{hours}h", "g0.tab": 0})
-    return f"{ctx.prom_base_url.rstrip('/')}/graph?{params}"
+    return f"{base_url.rstrip('/')}/graph?{params}"

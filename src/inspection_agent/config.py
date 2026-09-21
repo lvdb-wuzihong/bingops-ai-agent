@@ -183,6 +183,10 @@ class AppConfig:
     platform: PlatformConfig
     external: dict[str, ExternalEndpointConfig]
     feishu: FeishuOutboundConfig
+    # 多监控源（单 agent 巡检多业务）：实例表 + team 路由；单实例旧写法自动包装为 {"default": ...}
+    prometheus_instances: dict[str, ExternalEndpointConfig] = field(default_factory=dict)
+    default_prometheus: str = "default"
+    prometheus_routes: dict[str, str] = field(default_factory=dict)
     llm: LLMConfig = field(default_factory=LLMConfig)
     bot: BotConfig = field(default_factory=BotConfig)
     trend: TrendConfig = field(default_factory=TrendConfig)
@@ -235,6 +239,49 @@ def load_config(path: Path) -> AppConfig:
 
     trend_step = str(trend_raw.get("step", "1h"))
 
+    # ---- 多监控源解析：external.prometheus 支持单对象（旧写法）与命名实例表两种形态 ----
+    external_items: dict[str, ExternalEndpointConfig] = {}
+    prometheus_instances: dict[str, ExternalEndpointConfig] = {}
+    for name, spec in external_raw.items():
+        if not isinstance(spec, dict):
+            continue
+        if str(name) == "prometheus":
+            if "base_url" in spec or "token_env" in spec or "timeout_sec" in spec:
+                # 旧单实例写法：自动包装为名为 default 的实例
+                prometheus_instances["default"] = _section(ExternalEndpointConfig, spec)
+                continue
+            for inst_name, inst_spec in spec.items():
+                if not isinstance(inst_spec, dict):
+                    raise ConfigError(
+                        f"external.prometheus.{inst_name} 必须为映射（监控实例配置：base_url/timeout_sec）"
+                    )
+                inst = _section(ExternalEndpointConfig, inst_spec)
+                if not inst.base_url.strip():
+                    raise ConfigError(f"external.prometheus.{inst_name}.base_url 必填（监控实例）")
+                prometheus_instances[str(inst_name)] = inst
+            continue
+        external_items[str(name)] = _section(ExternalEndpointConfig, spec)
+
+    if "prometheus" in external_raw and not prometheus_instances:
+        raise ConfigError("external.prometheus 段为空：至少需要定义一个监控实例")
+    if prometheus_instances and "default" not in prometheus_instances:
+        # 无名为 default 的实例时，未路由团队兑底 = 声明顺序第一个实例
+        default_prometheus = next(iter(prometheus_instances))
+    else:
+        default_prometheus = "default"
+
+    routes_raw = data.get("prometheus_routes") or {}
+    if not isinstance(routes_raw, dict):
+        raise ConfigError("prometheus_routes 必须为映射（team → 监控实例名）")
+    prometheus_routes: dict[str, str] = {}
+    for team, inst in routes_raw.items():
+        inst_name = str(inst)
+        if inst_name not in prometheus_instances:
+            raise ConfigError(
+                f"prometheus_routes['{team}'] 指向的实例 '{inst_name}' 不存在于 external.prometheus"
+            )
+        prometheus_routes[str(team)] = inst_name
+
     return AppConfig(
         teams=[t.strip() for t in teams],
         checks={str(k): [str(c) for c in v] for k, v in checks.items() if isinstance(v, list)},
@@ -265,11 +312,10 @@ def load_config(path: Path) -> AppConfig:
             password_env=str(platform_raw.get("password_env", "BINGOPS_AGENT_PASSWORD")),
             timeout_sec=float(platform_raw.get("timeout_sec", 30)),
         ),
-        external={
-            str(name): _section(ExternalEndpointConfig, spec)
-            for name, spec in external_raw.items()
-            if isinstance(spec, dict)
-        },
+        external=external_items,
+        prometheus_instances=prometheus_instances,
+        default_prometheus=default_prometheus,
+        prometheus_routes=prometheus_routes,
         feishu=FeishuOutboundConfig(
             target_type=str(feishu_raw.get("target_type", "chat")),
             chat_id_env=str(feishu_raw.get("chat_id_env", "FEISHU_REPORT_CHAT_ID")),

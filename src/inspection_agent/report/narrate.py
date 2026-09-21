@@ -159,7 +159,7 @@ def verify_narrative(
 
 
 def _collect_urls(struct: dict[str, Any]) -> set[str]:
-    """收集契约内证据链接（evidence_url 字段，含 Prom 图 URL / 夜莺 URL / 工单号）。"""
+    """收集契约内证据链接（evidence_url 字段，含 Prom 图 URL / 工单号）。"""
     urls: set[str] = set()
 
     def walk(node: Any) -> None:

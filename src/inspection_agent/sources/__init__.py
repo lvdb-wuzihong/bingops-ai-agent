@@ -26,11 +26,31 @@ class SourceError(RuntimeError):
 
 @dataclass
 class Sources:
-    """pipeline 取数源集合；gitlab 允许为 None（git 线索降级）。"""
+    """pipeline 取数源集合。
+
+    多监控源（单 agent 巡检多业务）：prometheus 为命名实例表，
+    按 app.team 经 prometheus_for() 定向路由；gitlab 允许为 None（git 线索降级）。
+    """
 
     bingops: BingopsSource
-    prometheus: PrometheusSource
+    prometheus: dict[str, PrometheusSource]
+    default_prometheus: str
+    prometheus_routes: dict[str, str]
     gitlab: GitLabSource | None
+
+    def prometheus_for(self, team: str) -> PrometheusSource:
+        """按应用 team 定向取监控实例；未路由/路由缺失时兑底 default 实例。"""
+        name = self.prometheus_routes.get(team, self.default_prometheus)
+        source = self.prometheus.get(name)
+        if source is None:  # 路由表指向不存在的实例（config 层已拦，双保险）
+            name = self.default_prometheus
+            source = self.prometheus[name]
+        return source
+
+    @property
+    def prometheus_default(self) -> PrometheusSource:
+        """默认实例（无路由语义的场景使用）。"""
+        return self.prometheus[self.default_prometheus]
 
 
 def build_sources(config: AppConfig) -> Sources:
@@ -41,10 +61,12 @@ def build_sources(config: AppConfig) -> Sources:
     platform_client = PlatformClient.from_env(config.platform)
     bingops = BingopsSource(platform_client, list_limit_max=config.query.list_limit_max)
 
-    prom_cfg = config.external.get("prometheus")
-    if prom_cfg is None or not prom_cfg.base_url.strip():
-        raise SourceError("external.prometheus.base_url 未配置（步骤③ 指标取数必需）")
-    prometheus = PrometheusSource(prom_cfg.base_url, timeout_sec=prom_cfg.timeout_sec)
+    if not config.prometheus_instances:
+        raise SourceError("external.prometheus 未配置（步骤③ 指标取数必需）")
+    prometheus = {
+        name: PrometheusSource(cfg.base_url, timeout_sec=cfg.timeout_sec)
+        for name, cfg in config.prometheus_instances.items()
+    }
 
     gitlab: GitLabSource | None = None
     git_cfg = config.external.get("gitlab")
@@ -54,7 +76,13 @@ def build_sources(config: AppConfig) -> Sources:
     else:
         logger.info("external.gitlab 未配置或缺少 token：git 线索跳过")
 
-    return Sources(bingops=bingops, prometheus=prometheus, gitlab=gitlab)
+    return Sources(
+        bingops=bingops,
+        prometheus=prometheus,
+        default_prometheus=config.default_prometheus,
+        prometheus_routes=dict(config.prometheus_routes),
+        gitlab=gitlab,
+    )
 
 
 __all__ = [

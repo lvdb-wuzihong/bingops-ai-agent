@@ -197,8 +197,12 @@ def build_platform_rest_app() -> Any:
     return _lifespan_app(handler)
 
 
-def build_prometheus_rest_app() -> Any:
-    """Prometheus /api/v1/query_range 假服务（磁盘线性 60→96：24h critical + 8 天趋势命中）。"""
+def build_prometheus_rest_app(disk_mode: str = "linear") -> Any:
+    """Prometheus /api/v1/query_range 假服务。
+
+    disk_mode="linear"：磁盘线性 60→96（24h critical + 8 天趋势命中，默认）；
+    disk_mode="flat88"：磁盘恒 88（warning；多实例定向用例中区分第二实例的指纹值）。
+    """
 
     async def handler(scope, path, params, body, send):
         start_dt = datetime.fromisoformat(params["start"])
@@ -211,7 +215,10 @@ def build_prometheus_rest_app() -> Any:
         elif "node_cpu_seconds_total" in query:
             values = [85.0] * count
         elif "node_filesystem_avail_bytes" in query:
-            values = [60.0 + 36.0 * i / max(1, count - 1) for i in range(count)]
+            if disk_mode == "flat88":
+                values = [88.0] * count
+            else:
+                values = [60.0 + 36.0 * i / max(1, count - 1) for i in range(count)]
         elif "node_memory_MemAvailable" in query:
             values = [50.0] * count
         elif "kube_pod_container_status_restarts_total" in query:
@@ -351,6 +358,8 @@ def _write_test_config(
     oss_enabled: bool = False,
     gitlab_rest_enabled: bool = True,
     bot_mcp: dict[str, str] | None = None,
+    prometheus_external: dict[str, Any] | None = None,
+    prometheus_routes: dict[str, str] | None = None,
 ) -> None:
     config: dict[str, Any] = {
         "window": {"hours": 24, "step": "5m"},
@@ -387,13 +396,16 @@ def _write_test_config(
         },
         "platform": {"base_url": rest["platform"], "timeout_sec": 30},
         "external": {
-            "prometheus": {"base_url": rest["prometheus"]},
+            "prometheus": prometheus_external
+            if prometheus_external is not None
+            else {"base_url": rest["prometheus"]},
             **(
                 {"gitlab": {"base_url": rest["gitlab"], "token_env": "GITLAB_TOKEN"}}
                 if gitlab_rest_enabled
                 else {}
             ),
         },
+        **({"prometheus_routes": prometheus_routes} if prometheus_routes else {}),
         "feishu": {"target_type": "chat", "chat_id_env": "FEISHU_REPORT_CHAT_ID"},
         "mcp_servers": {
             **(
@@ -444,6 +456,8 @@ async def _run_report(
     tmp_path, rest_start, monkeypatch, *, llm_mode: str | None = None,
     oss_enabled: bool = False, gitlab_rest_enabled: bool = True,
     bot_mcp: dict[str, str] | None = None, dry_run: bool = True,
+    prometheus_external: dict[str, Any] | None = None,
+    prometheus_routes: dict[str, str] | None = None,
 ):
     if llm_mode is not None:
         monkeypatch.setenv("LLM_API_KEY", "test-key")
@@ -459,6 +473,8 @@ async def _run_report(
         config_path, rest, out_dir,
         llm_base_url=llm_url, oss_enabled=oss_enabled,
         gitlab_rest_enabled=gitlab_rest_enabled, bot_mcp=bot_mcp,
+        prometheus_external=prometheus_external,
+        prometheus_routes=prometheus_routes,
     )
     rc = await run_report(
         config_path,
@@ -720,6 +736,36 @@ async def test_clues_git_rest_down(tmp_path, rest_start, monkeypatch):
     types = {c["type"] for c in order["clues"]}
     assert {"change", "topology"} <= types
     assert "git" not in types
+
+
+# ---------------------------------------------------------------- 多监控源定向巡检
+
+
+async def test_multi_prometheus_routes_by_team(tmp_path, rest_start, monkeypatch):
+    """单 agent 双监控实例：团队 t1 路由到第二实例，指标与证据链接均来自该实例。"""
+    rest = await rest_start()
+    second = MockASGIServer(build_prometheus_rest_app(disk_mode="flat88"))
+    second_url = await second.start()
+    try:
+        rc, report_dir = await _run_report(
+            tmp_path, rest_start, monkeypatch,
+            prometheus_external={
+                "neibu": {"base_url": rest["prometheus"]},
+                "waibu": {"base_url": second_url},
+            },
+            prometheus_routes={"t1": "waibu"},
+        )
+        assert rc == 0
+        struct = json.loads((report_dir / "anomalies.json").read_text(encoding="utf-8"))
+        disk = next(a for a in struct["anomalies"] if a["rule"] == "disk_usage")
+        # 磁盘值来自第二实例（恒 88 warning），而非第一实例的线性 60→96（critical 96）
+        assert disk["observed"] == 88.0
+        assert disk["severity"] == "warning"
+        assert disk["evidence_url"].startswith(second_url)
+        cpu = next(a for a in struct["anomalies"] if a["rule"] == "cpu_high")
+        assert cpu["evidence_url"].startswith(second_url)  # 证据跟随所属实例
+    finally:
+        second.stop()
 
 
 # ---------------------------------------------------------------- P2-charter：bot HTTP 端点

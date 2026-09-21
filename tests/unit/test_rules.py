@@ -23,7 +23,7 @@ WE = WS + timedelta(hours=24)
 STEP = 300  # 5m
 
 CTX = RulesContext(
-    thresholds=Thresholds(), prom_base_url="", window_start=WS, window_end=WE,
+    thresholds=Thresholds(), window_start=WS, window_end=WE,
     trend=TrendConfig(),
 )
 
@@ -42,7 +42,10 @@ def full_series(value: float, count: int = 288) -> list[MetricSeries]:
     return series(*([value] * count))
 
 
-def make_snapshot(metric: str, values: list[float], resource_name: str = "node-1") -> MetricSnapshot:
+def make_snapshot(
+    metric: str, values: list[float], resource_name: str = "node-1",
+    prom_base_url: str = "",
+) -> MetricSnapshot:
     series = [MetricSeries(labels={"instance": resource_name}, values=values)]
     return MetricSnapshot(
         resource_id="r-1",
@@ -53,6 +56,7 @@ def make_snapshot(metric: str, values: list[float], resource_name: str = "node-1
         step_seconds=STEP,
         stats=window_stats(series),
         series=series,
+        prom_base_url=prom_base_url,
     )
 
 
@@ -229,7 +233,7 @@ def test_evaluate_all_sorts_critical_first():
 
     critical_app = make_app(app_id=1, app_name="A应用", metrics=[make_snapshot("disk", [96.0] * 288)])
     warning_app = make_app(app_id=2, app_name="B应用", metrics=[make_snapshot("cpu", [85.0] * 288)])
-    sources = SimpleNamespace(prometheus=SimpleNamespace(base_url=""))
+    sources = SimpleNamespace()
     anomalies, _ = evaluate_all(
         make_report_data([warning_app, critical_app]), _config_stub(), sources
     )
@@ -238,13 +242,30 @@ def test_evaluate_all_sorts_critical_first():
 
 def test_prom_evidence_uses_graph_url():
     ctx = RulesContext(
-        thresholds=Thresholds(), prom_base_url="http://prom.example.com",
+        thresholds=Thresholds(),
         window_start=WS, window_end=WE, trend=TrendConfig(),
     )
-    app = make_app(metrics=[make_snapshot("disk", [96.0] * 288)])
+    app = make_app(metrics=[make_snapshot("disk", [96.0] * 288, prom_base_url="http://prom.example.com")])
     anomalies, _ = evaluate_app(app, ctx)
     assert anomalies[0]["evidence_url"].startswith("http://prom.example.com/graph?")
     assert "g0.expr" in anomalies[0]["evidence_url"]
+
+
+def test_prom_evidence_follows_snapshot_instance():
+    """多监控源定向：证据链接指向采集快照所属实例（而非全局地址）。"""
+    ctx = RulesContext(
+        thresholds=Thresholds(),
+        window_start=WS, window_end=WE, trend=TrendConfig(),
+    )
+    app = make_app(metrics=[
+        make_snapshot("disk", [96.0] * 288, prom_base_url="https://vm-waibu.example.com"),
+        make_snapshot("cpu", [85.0] * 288, prom_base_url="http://vm-neibu:8428"),
+    ])
+    anomalies, _ = evaluate_app(app, ctx)
+    disk = next(a for a in anomalies if a["rule"] == "disk_usage")
+    cpu = next(a for a in anomalies if a["rule"] == "cpu_high")
+    assert disk["evidence_url"].startswith("https://vm-waibu.example.com/graph?")
+    assert cpu["evidence_url"].startswith("http://vm-neibu:8428/graph?")
 
 
 def _config_stub():

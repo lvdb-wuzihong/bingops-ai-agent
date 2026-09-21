@@ -51,7 +51,9 @@ def _sources(topology_result=None, gitlab=None):
 
     return Sources(
         bingops=FakeBingops(),
-        prometheus=SimpleNamespace(base_url="http://prom.example.com"),
+        prometheus={"default": SimpleNamespace(base_url="http://prom.example.com")},
+        default_prometheus="default",
+        prometheus_routes={},
         gitlab=gitlab,
     )
 

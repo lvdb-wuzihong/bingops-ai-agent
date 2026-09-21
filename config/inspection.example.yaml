@@ -60,9 +60,6 @@ prometheus:
   label_map:           # 应用级检查项（error_rate）selector 的 label 名；
     app: app_code      # 资源级 label 名直接写在 prom_queries 模板内（避免与 PromQL 字面 {} 冲突）
 
-n9e:
-  base_url: http://n9e.example.com     # 证据链接拼接（夜莺事件详情页）；留空则以事件 ID 为证据
-
 bingops:
   base_url: ""                         # 预留：工单链接拼接（P0 证据用 ticket_no，可为空）
 
@@ -74,12 +71,19 @@ platform:                     # bingops 平台 REST（pipeline 取数路径，�
   timeout_sec: 30
 
 external:                     # 外部系统直连（pipeline 取数路径）
-  prometheus:
-    base_url: http://prometheus:9090
+  prometheus:                          # 监控实例表（多业务/跨 VPC 定向巡检）
+    neibu:                             # 实例名自定义；未路由团队兑底 = 声明顺序第一个
+      base_url: http://vm-neibu:8428   # VictoriaMetrics 兼容 query_range API
+    waibu:                             # 对外 VPC 监控入口（内网打通或公网 HTTPS+鉴权）
+      base_url: https://vm-waibu.example.com
+  # 旧单实例写法仍兼容：prometheus: {base_url: http://prometheus:9090} 等价于名为 default 的实例
   gitlab:
     base_url: https://git.example.com
     token_env: GITLAB_TOKEN        # PRIVATE-TOKEN 认证；缺失则 git 线索跳过
   # n9e 已下线（2026-09）：接入新告警源时在此外加 base_url/token_env 段
+
+prometheus_routes:            # team → 监控实例（按平台 CMDB 应用 team 定向取数；未命中走兑底实例）
+  对外业务团队: waibu          # key 与 teams 中的团队名一致；证据链接跟随所属实例
 
 feishu:                       # P2-charter 出站统一走平台 send_feishu_message（编排层零飞书凭据）
   target_type: chat
