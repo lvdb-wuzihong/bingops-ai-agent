@@ -25,6 +25,19 @@ def resolve_report_chat_id(config: AppConfig) -> str | None:
     return os.environ.get(config.feishu.chat_id_env) or None
 
 
+def resolve_report_target(config: AppConfig) -> tuple[str, str] | None:
+    """日报推送目标：(target, target_type)；未设置返回 None（报告仅落盘）。
+
+    target_type=chat → 目标为会话 ID（群/单聊）；user → 目标为对方飞书 open_id（按人直发，
+    飞书自动落入与机器人的单聊，该目标不受平台 ALLOWED_CHATS 白名单约束）。
+    """
+    target = os.environ.get(config.feishu.chat_id_env) or None
+    if target is None:
+        return None
+    target_type = config.feishu.report_target_type or config.feishu.target_type
+    return target, target_type
+
+
 async def send_text(
     pool: MCPServerPool, config: AppConfig, chat_id: str, text: str
 ) -> None:
@@ -38,10 +51,10 @@ async def send_text(
             "send_feishu_message",
             {
                 "target": chat_id,
-                "target_type": config.feishu.target_type,
+                "target_type": config.feishu.report_target_type or config.feishu.target_type,
                 "content": text,
             },
         )
     except MCPError as exc:
         raise FeishuOutboundError(f"飞书出站失败: {exc}") from exc
-    logger.info("飞书消息已发送（chat=%s，%d 字符）", chat_id, len(text))
+    logger.info("飞书消息已发送（target=%s，%d 字符）", chat_id, len(text))

@@ -89,8 +89,9 @@ prometheus_routes:            # team → 监控实例（按平台 CMDB 应用 te
   对外业务团队: waibu          # key 与 teams 中的团队名一致；证据链接跟随所属实例
 
 feishu:                       # P2-charter 出站统一走平台 send_feishu_message（编排层零飞书凭据）
-  target_type: chat
-  chat_id_env: FEISHU_REPORT_CHAT_ID     # 日报推送目标群；bot 回复目标来自平台转发事件
+  target_type: chat           # bot 回复恒回来源会话（保持 chat）
+  report_target_type: chat    # 日报目标类型：chat=会话 ID（群/单聊）；user=按人（FEISHU_REPORT_CHAT_ID 填对方 open_id）
+  chat_id_env: FEISHU_REPORT_CHAT_ID     # 日报推送目标；bot 回复目标来自平台转发事件
 
 mcp_servers:                  # 双轨制后仅 bot（LLM 工具发现/执行）使用；pipeline 不再读此段
   bingops:                    # 兼作出站通道（send_feishu_message 写工具，需平台开写开关）

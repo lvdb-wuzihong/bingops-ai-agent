@@ -162,8 +162,9 @@ class ExternalEndpointConfig:
 class FeishuOutboundConfig:
     """飞书出站（P2-charter：统一走平台 send_feishu_message，编排层零飞书凭据）。"""
 
-    target_type: str = "chat"
-    chat_id_env: str = "FEISHU_REPORT_CHAT_ID"   # 日报推送目标群
+    target_type: str = "chat"        # bot 回复目标类型（恒为来源会话，建议不改）
+    report_target_type: str = ""    # 日报目标类型：chat=按会话 ID；user=按人 open_id；空=沿用 target_type
+    chat_id_env: str = "FEISHU_REPORT_CHAT_ID"   # 日报推送目标（report_target_type 决定其语义）
 
 
 @dataclass(frozen=True)
@@ -319,6 +320,7 @@ def load_config(path: Path) -> AppConfig:
         prometheus_routes=prometheus_routes,
         feishu=FeishuOutboundConfig(
             target_type=str(feishu_raw.get("target_type", "chat")),
+            report_target_type=str(feishu_raw.get("report_target_type", "") or ""),
             chat_id_env=str(feishu_raw.get("chat_id_env", "FEISHU_REPORT_CHAT_ID")),
         ),
         llm=_section(LLMConfig, llm_raw),

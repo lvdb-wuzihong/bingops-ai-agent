@@ -104,8 +104,9 @@ def create_app(
         if bound_agent is None:
             return JSONResponse(status_code=503, content={"error": "bot not ready"})
         bound_pool = pool
+        # bot 回复恒回来源会话（事件 chat_id 即会话维度，与日报的 report_target_type 解耦）
         background.add_task(
-            _handle, bound_agent, bound_pool, config.feishu.target_type, chat_id, text
+            _handle, bound_agent, bound_pool, "chat", chat_id, text
         )
         return JSONResponse(status_code=202, content={"accepted": True})
 

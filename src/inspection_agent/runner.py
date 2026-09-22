@@ -24,7 +24,7 @@ from .oss import OSSError, upload_report
 from .pipeline.clues import attach_clues
 from .pipeline.collect import CollectError, collect
 from .pipeline.rules import evaluate_all
-from .report.feishu import FeishuOutboundError, resolve_report_chat_id, send_text
+from .report.feishu import FeishuOutboundError, resolve_report_target, send_text
 from .report.html import render_html
 from .report.narrate import NarrateError, render_narrative
 from .report.render import render_report
@@ -103,8 +103,8 @@ async def run_report(
         )
         return 0
 
-    chat_id = resolve_report_chat_id(config)
-    if not chat_id:
+    report_target = resolve_report_target(config)
+    if report_target is None:
         print(f"[warn] 未配置环境变量 {config.feishu.chat_id_env}，报告仅落盘：{report_path}")
         return 0
 
@@ -118,7 +118,7 @@ async def run_report(
             {"bingops": bingops_mcp},
             timeout_sec=config.query.per_app_timeout_sec,
         ) as pool:
-            await send_text(pool, config, chat_id, summary_text)
+            await send_text(pool, config, report_target[0], summary_text)
     except (FeishuOutboundError, httpx.HTTPError) as exc:
         logger.error("飞书推送失败: %s", exc)
         return 1
