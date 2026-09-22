@@ -78,6 +78,7 @@ def create_app(
         try:
             if state["agent"] is None:
                 state["agent"] = await build_agent(config, active_pool)
+            state["pool"] = active_pool  # 回填闭包可见（生产路径 pool 参数为 None）
             app.state.agent = state["agent"]
             app.state.pool = active_pool
             logger.info("bot 就绪")
@@ -103,7 +104,9 @@ def create_app(
         bound_agent = state["agent"]
         if bound_agent is None:
             return JSONResponse(status_code=503, content={"error": "bot not ready"})
-        bound_pool = pool
+        bound_pool = state.get("pool") or pool  # lifespan 自建/注入二取一（生产为自建）
+        if bound_pool is None:
+            return JSONResponse(status_code=503, content={"error": "bot not ready"})
         # bot 回复恒回来源会话（事件 chat_id 即会话维度，与日报的 report_target_type 解耦）
         background.add_task(
             _handle, bound_agent, bound_pool, "chat", chat_id, text

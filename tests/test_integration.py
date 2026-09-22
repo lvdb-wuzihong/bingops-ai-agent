@@ -810,3 +810,40 @@ async def test_bot_receives_platform_event(tmp_path, rest_start, bot_mcp_start, 
             assert "个应用" in bot_mcp["sent"][0]["content"]
     finally:
         await pool.__aexit__(None, None, None)
+
+
+async def test_bot_lifespan_owned_pool_answers(tmp_path, rest_start, bot_mcp_start, monkeypatch):
+    """生产等价路径：create_app 不注入 pool/agent，由 lifespan 自建并出站成功。
+
+    回归：feishu_events 闭包曾捕获注入参数 pool（生产为 None），出站报
+    TypeError: 'NoneType' object is not subscriptable。
+    """
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    rest = await rest_start()
+    bot_mcp = await bot_mcp_start()
+    llm_url = await MockASGIServer(build_llm_app("bot")).start()
+    config_path = tmp_path / "inspection.yaml"
+    _write_test_config(
+        config_path, rest, tmp_path / "out",
+        llm_base_url=llm_url, bot_mcp=bot_mcp,
+    )
+
+    from inspection_agent.bot.server import create_app
+    from inspection_agent.config import load_config
+
+    config = load_config(config_path)
+    app = create_app(config)  # 不注入：lifespan 自建 pool 与 agent
+    async with app.router.lifespan_context(app):  # 显式跑 lifespan（ASGITransport 不自动跑）
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://bot") as client:
+            resp = await client.post(
+                "/feishu/events",
+                json={"event_id": "e2", "chat_id": "oc_test", "text": "有哪些应用？"},
+            )
+            assert resp.status_code == 202
+            for _ in range(60):
+                if bot_mcp["sent"]:
+                    break
+                await asyncio.sleep(0.1)
+            assert bot_mcp["sent"], "lifespan 自建 pool 应完成出站"
+            assert "个应用" in bot_mcp["sent"][0]["content"]
