@@ -119,7 +119,18 @@ class MCPServerPool:
     async def __aenter__(self) -> "MCPServerPool":
         for name, cfg in self._specs.items():
             conn = MCPConnection(name, cfg, self._timeout_sec)
-            await conn.__aenter__()
+            try:
+                await conn.__aenter__()
+            except BaseException as exc:  # noqa: BLE001  根因常被 anyio 拆进后台 Task，
+                # lifespan 只收到 CancelledError——在此标明是哪个 server/url 失败
+                logger.error(
+                    "MCP server %r 连接失败（url=%s）: %r——"
+                    "检查主机名解析/网络可达性与服务端白名单",
+                    name, cfg.url, exc,
+                )
+                raise MCPError(
+                    f"连接 MCP server {name!r} ({cfg.url}) 失败: {exc!r}"
+                ) from exc
             self._conns[name] = conn
         return self
 
