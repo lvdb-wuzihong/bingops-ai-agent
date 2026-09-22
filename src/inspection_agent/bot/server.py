@@ -62,13 +62,16 @@ def create_app(
         if own_pool:
             try:
                 await active_pool.__aenter__()
-            except Exception as exc:  # noqa: BLE001 连接失败必须给出可读原因后退出
-                # 常见失败：平台 MCP 端点 DNS rebinding 防护拦截（HTTP 421 Invalid Host
-                # header）——需在平台 MCP_ALLOWED_HOSTS 白名单加入 agent 访问用的 host:port
+            except BaseException as exc:  # noqa: BLE001  根因异常（DNS/421）常被 anyio 拆进
+                # 后台 Task，lifespan 只收到 CancelledError（BaseException）——
+                # 必须捕 BaseException 才能在此处给出可读指引后退出
                 logger.error(
-                    "bot 启动失败：bingops-mcp 连接失败（%s）。"
-                    "排查方向：mcp_servers.bingops.url 可达性；"
-                    "平台 MCP_ALLOWED_HOSTS 是否包含 agent 访问用的 host:port",
+                    "bot 启动失败：bingops-mcp 连接失败（%r）。排查方向："
+                    "1) mcp_servers.bingops.url 的主机名在 agent 所在环境能否解析"
+                    "（kubectl exec 进 pod curl 验证；DNS 失败为 Name or service not known）；"
+                    "2) 平台 MCP_ALLOWED_HOSTS 是否包含 agent 访问用的 host:port"
+                    "（缺失时 HTTP 421 Invalid Host header）；"
+                    "3) 根因详情见日志中 Task exception 的 BaseExceptionGroup",
                     exc,
                 )
                 raise
