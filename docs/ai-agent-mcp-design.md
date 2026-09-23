@@ -1,9 +1,5 @@
 # AI Agent 与 MCP 体系设计文档
 
-> **快照拷贝（charter §3）**：本文是 bingops 仓库 `docs/ai-agent-mcp-design.md` 的快照，
-> 不在此回写；设计变更一律改 bingops 仓库权威版。本仓库最新定位见 `docs/project-charter.md`
-> （编排层 runtime + 双轨制 + 飞书解耦；pipeline 取数已改走平台/外部 REST，非本文 MCP 口径）。
-
 > 本文是 AI Agent（巡检/根因/复盘/成本等六场景）的数据面总体设计，确定 MCP 拆分、
 > bingops-mcp 工具清单与平台侧前置改造项。
 > 场景 3（巡检日报）的执行细节见配套 `inspection-report-design.md`。
@@ -122,7 +118,9 @@
 | `list_business_apps` | GET /api/v1/cmdb/apps | 按 team/关键词过滤 | 3、6 |
 | `get_app_overview` | /apps/{id} + /apps/{id}/resources 复合 | 详情+repo_url+pipelines+资源清单 | 1、2、3、6 |
 | `find_app_by_resource` | GET /apps/by-resource/{id} | 实例→应用反查（根因分析入口） | 1、2 |
-| `search_resources` | GET /cmdb/resources | provider/model/status/region 过滤 | 全部 |
+| `search_resources` | GET /cmdb/resources | provider/model/status/region 过滤 + keyword 名称模糊 + **field_value 动态字段值精确检索（IP/连接地址/实例 ID，命中返回 matched_fields）** | 全部 |
+| `search_assets` | GET /cmdb/search | **跨域聚合**：应用+资源一次命中（工作台搜索同源，exact 开关） | 全部 |
+| `get_models_overview` | GET /cmdb/models/overview | **平台结构总览**：分类→模型→存活资源计数 | 全部 |
 | `get_resource_detail` | GET /cmdb/resources/{id} | 含动态 fields | 1、5 |
 
 #### B. 拓扑（场景 1、4）
@@ -160,7 +158,7 @@
 
 | # | 改造 | 原因 | 改动点 |
 |---|---|---|---|
-| 1 | `search_resources` 暴露 `fields.*` JSONB 查询参数 | GIN 索引已建只差 API 层；没有它"按 IP/instance_id 反查"只能内存过滤 | `api/v1/cmdb/resources.py` list 参数 + `resource_repo` |
+| 1 | ~~`search_resources` 暴露 `fields.*` JSONB 查询参数~~ **✅ 已完成（2026-09-22）** | 落地为通用 `field_value` 参数（而非逐字段命名参数）：`fields::text` 带双引号边界等值匹配，全动态字段生效（IP/连接地址/实例 ID/嵌套数组），无需枚举字段名；命中附带 matched_fields 告知 agent 命中字段。`fields::text` 无法用 GIN 索引（全扫），万级可接受 | `api/v1/cmdb/resources.py` + `resource_repo._json_value_like` + `mcp/tools/resources.py` |
 | 2 | repo_url 规范化（约定 `https://git.example.com/group/project.git` 格式，或入库解析出 git_host/project_path 结构化字段） | 自由字符串 agent 无法稳定解析 git host 与项目路径 | `cmdb_business_apps` 字段约定 + schemas 校验 |
 | 3 | `ai_agent` 只读角色 + 权限码种子 | MCP 鉴权载体 | `scripts/init_data.py` |
 
