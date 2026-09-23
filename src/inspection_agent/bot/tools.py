@@ -23,6 +23,7 @@ DEFAULT_ALLOWLIST: dict[str, set[str]] = {
         "get_resource_detail",
         "search_assets",          # 平台新增：跨域全局搜索（应用+资源，IP/主机名先搜一遍）
         "get_models_overview",    # 平台新增：CMDB 模型分类与资源计数总览
+        "get_app_topology",       # 平台新增：应用拓扑子图（依赖/被依赖应用+入口/中间件/存储）
         "list_tickets",
         "get_ticket_timeline",
         "list_job_executions",

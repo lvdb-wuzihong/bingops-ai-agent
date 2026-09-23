@@ -43,6 +43,14 @@ class BingopsSource:
             f"/api/v1/cmdb/resources/{resource_id}/topology", {"depth": depth}
         )
 
+    async def get_app_topology(self, app_id: int | str) -> dict[str, Any]:
+        """应用拓扑子图（nodes + edges）：依赖/被依赖应用 + 外部依赖 + 入口/中间件/存储资源。
+
+        节点 id 形如 app:{id} / external:{key} / resource:{id}，type 对应；
+        中心应用节点 is_center=true；边 relation 含 depends_on/depended_by/external_dependency。
+        """
+        return await self._client.get(f"/api/v1/cmdb/apps/{app_id}/topology")
+
     async def list_job_executions(self) -> list[dict[str, Any]]:
         """执行记录（含 code_ref/target_resources）；REST 无时间参数，collect 客户端按窗口过滤。"""
         data = await self._client.get(

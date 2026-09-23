@@ -83,6 +83,22 @@ TOPOLOGY = {
     "edges": [{"source": 201, "target": 101}, {"source": 202, "target": 101}],
 }
 
+APP_TOPOLOGY = {
+    # 应用级拓扑（/apps/{id}/topology）：订单中心 app:2 依赖支付网关 app:3 + 外部依赖
+    "nodes": [
+        {"id": "app:2", "type": "app", "name": "订单中心", "is_center": True},
+        {"id": "app:3", "type": "app", "name": "支付网关"},
+        {"id": "external:pay-api.example.com", "type": "external", "name": "支付回调 API"},
+        {"id": "resource:101", "type": "resource", "name": "ecs-order-03"},
+    ],
+    "edges": [
+        {"source": "app:2", "target": "app:3", "relation": "depends_on"},
+        {"source": "app:2", "target": "external:pay-api.example.com",
+         "relation": "external_dependency"},
+        {"source": "app:2", "target": "resource:101", "relation": "hosts_resource"},
+    ],
+}
+
 
 class MockASGIServer:
     """在临时端口上运行裸 ASGI 应用。"""
@@ -181,6 +197,9 @@ def build_platform_rest_app() -> Any:
         elif path.startswith("/api/v1/cmdb/apps/") and path.endswith("/resources"):
             app_id = int(path.split("/")[5])
             send = _respond(send, 200, _ok({"items": RESOURCES.get(app_id, [])}))
+        elif path.startswith("/api/v1/cmdb/apps/") and path.endswith("/topology"):
+            # 应用级拓扑（须在通用 apps/{id} 分支前拦截，否则 int(path 尾段) 崩）
+            send = _respond(send, 200, _ok(APP_TOPOLOGY))
         elif path.startswith("/api/v1/cmdb/apps/"):
             app_id = int(path.rsplit("/", 1)[1])
             send = _respond(send, 200, _ok({**APPS[app_id], "pipelines": []}))
@@ -188,7 +207,7 @@ def build_platform_rest_app() -> Any:
             send = _respond(send, 200, _ok({"items": JOBS, "total": len(JOBS)}))
         elif path == "/api/v1/tickets":
             send = _respond(send, 200, _ok({"items": TICKETS, "total": len(TICKETS)}))
-        elif path.endswith("/topology"):
+        elif path.endswith("/topology") and "/apps/" not in path:
             send = _respond(send, 200, _ok(TOPOLOGY))
         else:
             send = _respond(send, 404, {"code": 404, "message": "not found"})
@@ -722,7 +741,9 @@ async def test_clues_pipeline(tmp_path, rest_start, monkeypatch):
     change = next(c for c in order["clues"] if c["type"] == "change")
     assert "v1.2.3" in change["text"] and change["evidence_url"] == "T-77"
     topo = next(c for c in order["clues"] if c["type"] == "topology")
-    assert "mysql-01" in topo["text"]
+    # 应用级拓扑（依赖应用）+ 资源级拓扑（上游资源）合并为一条线索
+    assert "依赖应用：支付网关" in topo["text"] and "外部依赖：支付回调 API" in topo["text"]
+    assert "上游资源：mysql-01" in topo["text"]
     html = (report_dir / "report.html").read_text(encoding="utf-8")
     assert "clue-type" in html and "topology" in html
 

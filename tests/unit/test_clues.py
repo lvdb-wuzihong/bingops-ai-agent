@@ -14,6 +14,7 @@ from inspection_agent.config import (
 )
 from inspection_agent.pipeline.clues import (
     _all_changes,
+    _app_topology_deps,
     _change_clue,
     _find_previous_tag,
     _normalize_upstream,
@@ -143,6 +144,38 @@ def test_normalize_upstream_known_keys():
     ]
     assert _normalize_upstream({"parents": ["lb-01"]}) == ["lb-01"]
     assert _normalize_upstream("bad") == []
+
+
+def test_app_topology_deps_extracts_center_outbound():
+    """应用级拓扑解析：只取中心应用的出向 depends_on，区分依赖应用与外部依赖。"""
+    data = {
+        "nodes": [
+            {"id": "app:2", "type": "app", "name": "订单中心", "is_center": True},
+            {"id": "app:3", "type": "app", "name": "支付网关"},
+            {"id": "app:9", "type": "app", "name": "下游报表"},
+            {"id": "external:pay.example.com", "type": "external", "name": "支付回调"},
+        ],
+        "edges": [
+            {"source": "app:2", "target": "app:3", "relation": "depends_on"},
+            {"source": "app:2", "target": "external:pay.example.com",
+             "relation": "external_dependency"},
+            {"source": "app:9", "target": "app:2", "relation": "depended_by"},  # 非出向，忽略
+        ],
+    }
+    apps, externals = _app_topology_deps(data)
+    assert apps == ["支付网关"]
+    assert externals == ["支付回调"]
+
+
+def test_app_topology_deps_lenient():
+    assert _app_topology_deps(None) == ([], [])
+    assert _app_topology_deps({"nodes": "bad", "edges": []}) == ([], [])
+    # 无中心节点：不筛 source，凡 depends_on 目标为 app:/external: 均取
+    apps, _ = _app_topology_deps({
+        "nodes": [{"id": "app:1", "name": "A"}, {"id": "app:2", "name": "B"}],
+        "edges": [{"source": "app:1", "target": "app:2", "relation": "depends_on"}],
+    })
+    assert apps == ["B"]
 
 
 # ---------------------------------------------------------------- attach_clues（异步编排与容错）

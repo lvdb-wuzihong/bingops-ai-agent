@@ -6,7 +6,7 @@
 - 变更线索复用 collect 已拉数据（零额外查询）；拓扑/git 仅对命中异常各一次调用。
 
 三类：change（变更关联）/ topology（上下游依赖）/ git（tag compare）。
-拓扑走平台 REST /resources/{id}/topology（nodes+edges 图）。
+拓扑两级：应用级（/apps/{id}/topology，依赖应用/外部依赖）+ 资源级（/resources/{id}/topology，上游资源）。
 注：alert 线索已随夜莺下线移除（2026-09），接入新告警源时恢复（git 历史可查）。
 契约见 .qoder/skills/inspection-agent-dev/reference.md §10。
 """
@@ -129,32 +129,97 @@ def _normalize_upstream(data: Any, resource_id: Any = None) -> list[str]:
     return []
 
 
+def _app_topology_deps(data: Any) -> tuple[list[str], list[str]]:
+    """应用级拓扑解析：(依赖应用名, 外部依赖名)。
+
+    只取中心应用（is_center）的出向 depends_on 边；宽松解析，结构异常返回空。
+    """
+    if not isinstance(data, dict):
+        return [], []
+    nodes = data.get("nodes")
+    edges = data.get("edges")
+    if not (isinstance(nodes, list) and isinstance(edges, list)):
+        return [], []
+    names: dict[str, str] = {}
+    center: str | None = None
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        node_id = str(node.get("id") or "")
+        if not node_id:
+            continue
+        names[node_id] = str(node.get("name") or node_id)
+        if node.get("is_center"):
+            center = node_id
+    apps: list[str] = []
+    externals: list[str] = []
+    for edge in edges:
+        if not isinstance(edge, dict):
+            continue
+        relation = str(edge.get("relation") or "")
+        if center is not None and str(edge.get("source")) != center:
+            continue  # 只取中心应用的出向依赖
+        target = str(edge.get("target") or "")
+        name = names.get(target)
+        if not name:
+            continue
+        if relation == "external_dependency" or (
+            relation == "depends_on" and target.startswith("external:")
+        ):
+            if name not in externals:
+                externals.append(name)
+        elif relation == "depends_on" and target.startswith("app:"):
+            if name not in apps:
+                apps.append(name)
+    return apps, externals
+
+
 async def _topology_clue(
     sources: Sources, anomaly: dict[str, Any], config: AppConfig
 ) -> dict[str, Any] | None:
-    """拓扑线索：异常资源上游依赖（平台 REST topology，nodes+edges 图）。
+    """拓扑线索：依赖应用/外部依赖（应用级拓扑）+ 上游资源（资源级拓扑）。
 
-    belongs_to 向上链 + relates_to 关联；nodes/edges 字段以平台实现为准（联调校准）。
+    应用级优先（REST /apps/{id}/topology，能拿到资源级拓扑没有的依赖应用维度）；
+    任一级失败/为空则跳过该级，全部为空返回 None。
     """
+    app_id = anomaly.get("app_id")
+    parts: list[str] = []
+
+    # 应用级：依赖应用 + 外部依赖（任一级失败只跳过本级，不影响另一级）
+    try:
+        app_data = await sources.bingops.get_app_topology(int(app_id))  # type: ignore[arg-type]
+        deps, externals = _app_topology_deps(app_data)
+        if deps:
+            parts.append(f"依赖应用：{'、'.join(deps[:_UPSTREAM_LIMIT])}")
+        if externals:
+            parts.append(f"外部依赖：{'、'.join(externals[:3])}")
+    except Exception as exc:  # noqa: BLE001 单级容错（SourceError/替身缺方法等）
+        logger.info("应用级拓扑跳过（app %s）: %s", app_id, exc)
+
+    # 资源级：上游资源（原逻辑）
     resource_id = anomaly.get("resource_id")
     try:
         numeric_id = int(resource_id)  # type: ignore[arg-type]
     except (TypeError, ValueError):
+        numeric_id = None
+    if numeric_id is not None:
+        try:
+            data = await sources.bingops.get_topology(numeric_id, config.clues.topology_depth)
+            upstream = _normalize_upstream(data, resource_id)[:_UPSTREAM_LIMIT]
+        except Exception as exc:  # noqa: BLE001 单级容错
+            logger.info("资源级拓扑跳过（资源 %s）: %s", resource_id, exc)
+            upstream = []
+        if upstream:
+            parts.append(f"上游资源：{'、'.join(upstream)}")
+
+    if not parts:
         return None
-    try:
-        data = await sources.bingops.get_topology(numeric_id, config.clues.topology_depth)
-    except SourceError as exc:
-        logger.info("拓扑线索跳过（资源 %s）: %s", resource_id, exc)
-        return None
-    upstream = _normalize_upstream(data, resource_id)[:_UPSTREAM_LIMIT]
-    if not upstream:
-        return None
-    evidence = f"topology-{resource_id}"
+    evidence = f"topology-app-{app_id}"
     if config.platform.base_url:
-        evidence = f"{config.platform.base_url.rstrip('/')}/resources/{resource_id}"
+        evidence = f"{config.platform.base_url.rstrip('/')}/apps/{app_id}"
     return {
         "type": "topology",
-        "text": f"上游依赖：{'、'.join(upstream)}",
+        "text": "；".join(parts),
         "evidence_url": evidence,
     }
 
