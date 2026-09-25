@@ -36,7 +36,24 @@ DEFAULT_ALLOWLIST: dict[str, set[str]] = {
         # "get_resource_stats",
     },
     # n9e 已下线（2026-09）：接入新告警源时按其 tools/list 恢复白名单条目
-    "prometheus": {"execute_range_query", "execute_query", "query_range", "query_instant"},
+    # prometheus 组按部署版本（prometheus-mcp-server，Go 版）tools/list 实名核对；只读查询/发现类。
+    # 该 MCP 另有 reload/quit（管理操作：配置重载/进程退出）与 config（可能含凭据）等，
+    # 一律永不进白名单（红线 2）。
+    "prometheus": {
+        "query",            # PromQL 即时查询
+        "range_query",      # PromQL 区间查询
+        "series",           # 按 label matcher 查时间序列（确认序列存在）
+        "label_names",      # label 名发现（拼 selector 前先确认有哪些 label）
+        "label_values",     # label 值查询（定位 pod/deployment 实际取值）
+        "metric_metadata",  # 指标元数据
+        "list_targets",     # target 概览（只读）
+        "tsdb_stats",       # TSDB 用量/基数（只读，基数诊断）
+        "list_alerts",      # 活动告警（只读）
+        "list_rules",       # 已加载告警/记录规则（只读）
+        # 需要时放开（只读）：exemplar_query / targets_metadata
+        # 旧候选 MCP 工具名（交集语义多列无害，留作切换兼容）：
+        # "execute_range_query", "execute_query", "query_range", "query_instant",
+    },
     "gitlab": {"compare", "list_commits", "get_project"},  # P2 只读；以部署版本 tools/list 为准
 }
 

@@ -127,12 +127,12 @@ def test_effective_allowlist_narrows_without_expanding():
     config = BotConfig(
         tool_allowlist={
             "bingops": ["list_business_apps", "add_ticket_comment"],  # 写工具必须被交集掉
-            "prometheus": ["query_instant"],
+            "prometheus": ["range_query"],
         }
     )
     allow = effective_allowlist(config)
     assert allow["bingops"] == {"list_business_apps"}
-    assert allow["prometheus"] == {"query_instant"}  # 显式配置只可收窄
+    assert allow["prometheus"] == {"range_query"}  # 显式配置只可收窄
     assert allow["gitlab"] == DEFAULT_ALLOWLIST["gitlab"]  # 未提及的 server 保持默认
 
 
@@ -162,7 +162,7 @@ async def test_load_tool_schemas_filters_writes():
     pool = FakeDiscoveryPool(
         {
             "bingops": ["list_business_apps", "add_ticket_comment", "create_ticket"],
-            "prometheus": ["query_instant", "execute_write"],
+            "prometheus": ["range_query", "execute_write"],
         }
     )
     schemas = await load_tool_schemas(pool, BotConfig())
@@ -170,7 +170,7 @@ async def test_load_tool_schemas_filters_writes():
     assert "bingops__list_business_apps" in names
     assert "bingops__add_ticket_comment" not in names
     assert "bingops__create_ticket" not in names
-    assert "prometheus__query_instant" in names
+    assert "prometheus__range_query" in names
     assert "prometheus__execute_write" not in names
 
 
@@ -239,13 +239,13 @@ async def test_load_tool_schemas_with_server_groups():
             }
 
     pool = FakeDiscoveryPool(
-        {"prometheus-neibu": ["query_instant"], "prometheus-waibu": ["query_instant"]}
+        {"prometheus-neibu": ["range_query"], "prometheus-waibu": ["range_query"]}
     )
     groups = {"prometheus-neibu": "prometheus", "prometheus-waibu": "prometheus"}
     schemas = await load_tool_schemas(pool, BotConfig(), server_groups=groups)
     assert {s["function"]["name"] for s in schemas} == {
-        "prometheus-neibu__query_instant",
-        "prometheus-waibu__query_instant",
+        "prometheus-neibu__range_query",
+        "prometheus-waibu__range_query",
     }
 
     # 未声明分组 → 按 server 精确名匹配，未知名静默跳过（原语义回归保护）

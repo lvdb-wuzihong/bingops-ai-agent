@@ -1,8 +1,14 @@
 # 运行时技能元数据（方法论正文在同目录 SKILL.md；tools 只能声明白名单子集，永不扩写）
 name: metrics-query
-description: Prometheus/VictoriaMetrics 指标查询（即时值与区间曲线）
+description: Prometheus/VictoriaMetrics 指标查询（即时值与区间曲线、label 发现、基数诊断）
 tools:
-  - execute_range_query
-  - execute_query
-  - query_range
-  - query_instant
+  - query
+  - range_query
+  - series
+  - label_names
+  - label_values
+  - metric_metadata
+  - list_targets
+  - tsdb_stats
+  - list_alerts
+  - list_rules
