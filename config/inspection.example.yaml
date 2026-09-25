@@ -99,9 +99,19 @@ mcp_servers:                  # 双轨制后仅 bot（LLM 工具发现/执行）
     # host:port 加入 MCP_ALLOWED_HOSTS（MCP 端点 DNS rebinding 防护，缺失返回 421）
     url: http://127.0.0.1:8000/mcp/
     headers: {}
-  prometheus:
-    url: http://127.0.0.1:8081/mcp
+  prometheus:                # bot 对话侧监控 MCP；一个进程只能绑一个 VM（集群版 URL 需带
+    url: http://127.0.0.1:8081/mcp    # vmselect /select/<accountID>/prometheus 前缀）
     headers: {}
+  # 多 VM 实例写法：每实例一个 prometheus-mcp 进程 + options.group 指向白名单分组
+  # （bot/tools.py DEFAULT_ALLOWLIST 键），同名工具自动带实例前缀区分：
+  # prometheus-neibu:
+  #   url: http://prom-mcp-neibu:8081/mcp
+  #   headers: {}
+  #   options: {group: prometheus}
+  # prometheus-waibu:
+  #   url: http://prom-mcp-waibu:8082/mcp
+  #   headers: {}
+  #   options: {group: prometheus}
   # n9e MCP 已随夜莺下线（2026-09）
   # gitlab:           # P2 git 线索：部署 GitLab 社区 MCP（如 @zereight/gitlab-mcp）后启用
   #   url: http://127.0.0.1:8082/mcp

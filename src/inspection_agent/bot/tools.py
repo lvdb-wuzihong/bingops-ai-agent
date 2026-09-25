@@ -62,18 +62,23 @@ async def load_tool_schemas(
     pool: MCPServerPool,
     config: BotConfig,
     tool_filter: frozenset[str] | None = None,
+    server_groups: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """对各 MCP server 执行 tools/list，转换为 OpenAI function schemas。
 
     工具名加 server 前缀（如 bingops__list_business_apps）防跨 server 冲突；
     单 server 发现失败仅跳过，不阻断 bot 启动；tool_filter 非空时为技能声明后的
-    暴露面（∩白名单已在 skillregistry 完成），未声明的白名单内工具不暴露给 LLM。
+    暴露面（∩白名单已在 skillregistry 完成），未声明的白名单内工具不暴露给 LLM；
+    server_groups（name→分组别名）支持一个白名单分组管多实例（如两台 VM 各起一个
+    prometheus-mcp，options.group 均指 prometheus），同名工具以实例前缀区分。
     """
     allowlist = effective_allowlist(config)
     schemas: list[dict[str, Any]] = []
     filtered_out = 0
     for server_name, conn in pool.connections().items():
-        allowed = allowlist.get(server_name, set())
+        # 分组别名优先；未声明/分组不存在时回退 server 精确名（原语义，未知名静默跳过）
+        group = (server_groups or {}).get(server_name, server_name)
+        allowed = allowlist.get(group) or allowlist.get(server_name, set())
         if not allowed or conn.session is None:
             continue
         try:

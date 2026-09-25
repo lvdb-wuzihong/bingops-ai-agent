@@ -211,3 +211,43 @@ async def test_load_tool_schemas_with_skill_filter():
         "bingops__list_tickets",
     }
 
+
+async def test_load_tool_schemas_with_server_groups():
+    """options.group 分组别名：一个白名单分组管多实例，工具名带实例前缀区分。"""
+
+    class FakeSession:
+        def __init__(self, tools: list[str]) -> None:
+            self._tools = tools
+
+        async def list_tools(self):
+            return SimpleNamespace(
+                tools=[
+                    SimpleNamespace(name=name, description="d", inputSchema={"type": "object"})
+                    for name in self._tools
+                ]
+            )
+
+    class FakeDiscoveryPool:
+        def __init__(self, per_server: dict[str, list[str]]) -> None:
+            self._per = per_server
+
+        def connections(self):
+            return {
+                server: SimpleNamespace(session=FakeSession(tools))
+                for server, tools in self._per.items()
+            }
+
+    pool = FakeDiscoveryPool(
+        {"prometheus-neibu": ["query_instant"], "prometheus-waibu": ["query_instant"]}
+    )
+    groups = {"prometheus-neibu": "prometheus", "prometheus-waibu": "prometheus"}
+    schemas = await load_tool_schemas(pool, BotConfig(), server_groups=groups)
+    assert {s["function"]["name"] for s in schemas} == {
+        "prometheus-neibu__query_instant",
+        "prometheus-waibu__query_instant",
+    }
+
+    # 未声明分组 → 按 server 精确名匹配，未知名静默跳过（原语义回归保护）
+    schemas = await load_tool_schemas(pool, BotConfig())
+    assert schemas == []
+

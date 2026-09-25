@@ -33,7 +33,14 @@ async def build_agent(config: AppConfig, pool: MCPServerPool) -> ChatAgent:
     llm = LLMClient.from_config(config.llm)
     # 运行时技能：方法论 prompt 段 + 工具暴露面收窄（白名单仍为上界，fail-open）
     registry = load_skills(config.bot.skills, effective_allow_names(config.bot))
-    schemas = await load_tool_schemas(pool, config.bot, tool_filter=registry.tool_filter)
+    # 多实例 MCP：options.group 指向白名单分组（如两台 VM 各起一个 prometheus-mcp）
+    server_groups = {
+        name: str(cfg.options.get("group") or "").strip() or name
+        for name, cfg in config.mcp_servers.items()
+    }
+    schemas = await load_tool_schemas(
+        pool, config.bot, tool_filter=registry.tool_filter, server_groups=server_groups
+    )
     if registry.skills:
         logger.info(
             "bot 运行时技能就绪：%d 个（%s）",
