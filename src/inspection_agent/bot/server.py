@@ -16,7 +16,7 @@ from typing import Any, AsyncIterator
 from fastapi import BackgroundTasks, FastAPI
 from fastapi.responses import JSONResponse
 
-from ..config import AppConfig
+from ..config import AppConfig, McpServerConfig
 from ..llm.client import LLMClient
 from ..mcpclient import MCPServerPool
 from .agent import ChatAgent
@@ -28,16 +28,28 @@ from .tools import effective_allow_names, load_tool_schemas
 logger = logging.getLogger(__name__)
 
 
+def resolve_server_groups(servers: dict[str, McpServerConfig]) -> dict[str, str]:
+    """mcp_servers 条目的白名单分组解析（多实例接入，如多台 VM 各起一个 prometheus-mcp）。
+
+    支持两种写法：入口级 group 键（装载器自定义键语义）与嵌套 options.group 块；
+    未声明/空值回退 server 自身名（即按精确名匹配白名单的原语义）。
+    """
+    groups: dict[str, str] = {}
+    for name, cfg in servers.items():
+        raw = cfg.options.get("group")
+        if raw is None and isinstance(cfg.options.get("options"), dict):
+            raw = cfg.options["options"].get("group")
+        groups[name] = str(raw or "").strip() or name
+    return groups
+
+
 async def build_agent(config: AppConfig, pool: MCPServerPool) -> ChatAgent:
     """构建 ChatAgent（生产 lifespan 与测试共用）。"""
     llm = LLMClient.from_config(config.llm)
     # 运行时技能：方法论 prompt 段 + 工具暴露面收窄（白名单仍为上界，fail-open）
     registry = load_skills(config.bot.skills, effective_allow_names(config.bot))
-    # 多实例 MCP：options.group 指向白名单分组（如两台 VM 各起一个 prometheus-mcp）
-    server_groups = {
-        name: str(cfg.options.get("group") or "").strip() or name
-        for name, cfg in config.mcp_servers.items()
-    }
+    # 多实例 MCP：group 别名指向白名单分组（如两台 VM 各起一个 prometheus-mcp）
+    server_groups = resolve_server_groups(config.mcp_servers)
     if any(group != name for name, group in server_groups.items()):
         logger.info("bot MCP 分组映射：%s", server_groups)
     schemas = await load_tool_schemas(

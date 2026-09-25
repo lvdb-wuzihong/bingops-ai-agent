@@ -253,6 +253,28 @@ async def test_load_tool_schemas_with_server_groups():
     assert schemas == []
 
 
+def test_resolve_server_groups_both_shapes():
+    """分组别名两种写法（入口级 group 键 / 嵌套 options 块）均生效，未声明回退自身名。"""
+    from inspection_agent.bot.server import resolve_server_groups
+    from inspection_agent.config import McpServerConfig
+
+    servers = {
+        "flat": McpServerConfig(url="http://a/mcp", options={"group": "prometheus"}),
+        "nested": McpServerConfig(
+            url="http://b/mcp", options={"options": {"group": "prometheus"}}
+        ),
+        "plain": McpServerConfig(url="http://c/mcp"),
+        "blank": McpServerConfig(url="http://d/mcp", options={"group": "  "}),
+    }
+    groups = resolve_server_groups(servers)
+    assert groups == {
+        "flat": "prometheus",
+        "nested": "prometheus",
+        "plain": "plain",
+        "blank": "blank",
+    }
+
+
 async def test_load_tool_schemas_warns_on_empty_allowlist(caplog):
     """连接正常但白名单交集为空时必须告警（历史上多实例改名/平台新工具两次静默失效）。"""
 
