@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 
 from inspection_agent.bot.agent import ChatAgent
@@ -250,4 +251,27 @@ async def test_load_tool_schemas_with_server_groups():
     # 未声明分组 → 按 server 精确名匹配，未知名静默跳过（原语义回归保护）
     schemas = await load_tool_schemas(pool, BotConfig())
     assert schemas == []
+
+
+async def test_load_tool_schemas_warns_on_empty_allowlist(caplog):
+    """连接正常但白名单交集为空时必须告警（历史上多实例改名/平台新工具两次静默失效）。"""
+
+    class FakeSession:
+        async def list_tools(self):
+            return SimpleNamespace(
+                tools=[
+                    SimpleNamespace(
+                        name="execute_query", description="d", inputSchema={"type": "object"}
+                    )
+                ]
+            )
+
+    class FakeDiscoveryPool:
+        def connections(self):
+            return {"prometheus_juice": SimpleNamespace(session=FakeSession())}
+
+    with caplog.at_level(logging.WARNING, logger="inspection_agent.bot.tools"):
+        schemas = await load_tool_schemas(FakeDiscoveryPool(), BotConfig())
+    assert schemas == []
+    assert any("白名单交集为空" in record.message for record in caplog.records)
 

@@ -76,16 +76,24 @@ async def load_tool_schemas(
     schemas: list[dict[str, Any]] = []
     filtered_out = 0
     for server_name, conn in pool.connections().items():
-        # 分组别名优先；未声明/分组不存在时回退 server 精确名（原语义，未知名静默跳过）
+        # 分组别名优先；未声明/分组不存在时回退 server 精确名（未知名会得到空交集）
         group = (server_groups or {}).get(server_name, server_name)
         allowed = allowlist.get(group) or allowlist.get(server_name, set())
         if not allowed or conn.session is None:
+            if conn.session is not None:
+                # 连接正常但白名单交集为空：曾经两次静默失效（多实例改名、平台新工具），必须有声
+                logger.warning(
+                    "bot 工具发现：server %s 连接正常但白名单交集为空（0 个工具暴露）——"
+                    "检查 server 名是否在 DEFAULT_ALLOWLIST、options.group 是否指向分组键",
+                    server_name,
+                )
             continue
         try:
             response = await conn.session.list_tools()
         except Exception as exc:  # noqa: BLE001 单 server 失败不阻断启动
             logger.warning("bot 工具发现失败（跳过 %s）: %s", server_name, exc)
             continue
+        exposed = 0
         for tool in response.tools or []:
             if tool.name not in allowed:
                 continue
@@ -107,6 +115,13 @@ async def load_tool_schemas(
                     },
                 }
             )
+            exposed += 1
+        logger.info(
+            "bot 工具发现：server %s 暴露 %d/%d 个白名单内工具",
+            server_name,
+            exposed,
+            len(allowed),
+        )
     if tool_filter is not None and filtered_out:
         logger.info("bot 技能收窄：%d 个白名单内工具未被技能声明，不暴露给 LLM", filtered_out)
     logger.info("bot 工具发现完成：%d 个只读工具", len(schemas))
