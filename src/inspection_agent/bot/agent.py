@@ -37,6 +37,7 @@ class ChatAgent:
         max_iterations: int = 8,
         tool_result_max_chars: int = 2000,
         session: SessionStore | None = None,
+        extra_system_prompt: str = "",
     ) -> None:
         self._pool = pool
         self._llm = llm
@@ -45,12 +46,19 @@ class ChatAgent:
         self._result_max = tool_result_max_chars
         self._session = session or SessionStore()
         self._allowed_names = {s["function"]["name"] for s in tool_schemas}
+        # 基础行为红线（代码持有）+ 运行时技能方法论段（skills/ 目录，skillregistry 装配）
+        self._system_prompt = BOT_SYSTEM_PROMPT + extra_system_prompt
+
+    @property
+    def system_prompt(self) -> str:
+        """组装后的 system prompt（诊断与测试用）。"""
+        return self._system_prompt
 
     async def answer(self, chat_id: str, user_text: str) -> str:
         """处理一条用户消息：loop 直到无工具调用或达上限；LLM 断供返回可用性提示。"""
         history = self._session.append_user(chat_id, user_text)
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": BOT_SYSTEM_PROMPT},
+            {"role": "system", "content": self._system_prompt},
             *history,
         ]
         try:

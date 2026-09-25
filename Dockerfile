@@ -31,6 +31,9 @@ COPY --from=builder /install /usr/local
 
 WORKDIR /app
 
+# 运行时技能目录（bot 技能：方法论 prompt 段 + 工具子集声明，bot/skillregistry.py 加载）
+COPY skills ./skills
+
 # 非 root 运行；config/（ConfigMap 挂载点，样例见仓库 config/inspection.example.yaml，
 # 镜像内不内置配置）与 out/（产物目录）需可写
 RUN useradd --create-home --uid 10001 appuser \

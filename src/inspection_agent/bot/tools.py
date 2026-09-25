@@ -1,7 +1,8 @@
 """MCP tools → OpenAI function schemas + 只读白名单（SKILL 红线 2）。
 
 写工具（`add_ticket_comment`/`create_ticket` 与外部系统写工具集）无条件排除；
-YAML `bot.tool_allowlist` 只能收窄默认白名单，不可扩写。
+YAML `bot.tool_allowlist` 只能收窄默认白名单，不可扩写；运行时技能（bot/skillregistry.py）
+可在此之上按技能声明进一步收窄暴露面（tool_filter），同样永不扩写。
 """
 
 from __future__ import annotations
@@ -48,14 +49,29 @@ def effective_allowlist(config: BotConfig) -> dict[str, set[str]]:
     return narrowed
 
 
-async def load_tool_schemas(pool: MCPServerPool, config: BotConfig) -> list[dict[str, Any]]:
+def effective_allow_names(config: BotConfig) -> set[str]:
+    """白名单全集（裸名 ∪ server__name）：运行时技能声明校验与过滤的上界。"""
+    names: set[str] = set()
+    for server, tools in effective_allowlist(config).items():
+        names.update(tools)
+        names.update(f"{server}__{tool}" for tool in tools)
+    return names
+
+
+async def load_tool_schemas(
+    pool: MCPServerPool,
+    config: BotConfig,
+    tool_filter: frozenset[str] | None = None,
+) -> list[dict[str, Any]]:
     """对各 MCP server 执行 tools/list，转换为 OpenAI function schemas。
 
     工具名加 server 前缀（如 bingops__list_business_apps）防跨 server 冲突；
-    单 server 发现失败仅跳过，不阻断 bot 启动。
+    单 server 发现失败仅跳过，不阻断 bot 启动；tool_filter 非空时为技能声明后的
+    暴露面（∩白名单已在 skillregistry 完成），未声明的白名单内工具不暴露给 LLM。
     """
     allowlist = effective_allowlist(config)
     schemas: list[dict[str, Any]] = []
+    filtered_out = 0
     for server_name, conn in pool.connections().items():
         allowed = allowlist.get(server_name, set())
         if not allowed or conn.session is None:
@@ -68,15 +84,25 @@ async def load_tool_schemas(pool: MCPServerPool, config: BotConfig) -> list[dict
         for tool in response.tools or []:
             if tool.name not in allowed:
                 continue
+            full_name = f"{server_name}__{tool.name}"
+            if (
+                tool_filter is not None
+                and tool.name not in tool_filter
+                and full_name not in tool_filter
+            ):
+                filtered_out += 1
+                continue
             schemas.append(
                 {
                     "type": "function",
                     "function": {
-                        "name": f"{server_name}__{tool.name}",
+                        "name": full_name,
                         "description": (tool.description or "").strip()[:500],
                         "parameters": tool.inputSchema or {"type": "object", "properties": {}},
                     },
                 }
             )
+    if tool_filter is not None and filtered_out:
+        logger.info("bot 技能收窄：%d 个白名单内工具未被技能声明，不暴露给 LLM", filtered_out)
     logger.info("bot 工具发现完成：%d 个只读工具", len(schemas))
     return schemas

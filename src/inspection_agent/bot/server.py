@@ -22,7 +22,8 @@ from ..mcpclient import MCPServerPool
 from .agent import ChatAgent
 from .outbound import send_reply
 from .session import SessionStore
-from .tools import load_tool_schemas
+from .skillregistry import load_skills
+from .tools import effective_allow_names, load_tool_schemas
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,15 @@ logger = logging.getLogger(__name__)
 async def build_agent(config: AppConfig, pool: MCPServerPool) -> ChatAgent:
     """构建 ChatAgent（生产 lifespan 与测试共用）。"""
     llm = LLMClient.from_config(config.llm)
-    schemas = await load_tool_schemas(pool, config.bot)
+    # 运行时技能：方法论 prompt 段 + 工具暴露面收窄（白名单仍为上界，fail-open）
+    registry = load_skills(config.bot.skills, effective_allow_names(config.bot))
+    schemas = await load_tool_schemas(pool, config.bot, tool_filter=registry.tool_filter)
+    if registry.skills:
+        logger.info(
+            "bot 运行时技能就绪：%d 个（%s）",
+            len(registry.skills),
+            "、".join(s.name for s in registry.skills),
+        )
     return ChatAgent(
         pool,
         llm,
@@ -38,6 +47,7 @@ async def build_agent(config: AppConfig, pool: MCPServerPool) -> ChatAgent:
         max_iterations=config.bot.max_tool_iterations,
         tool_result_max_chars=config.bot.tool_result_max_chars,
         session=SessionStore(config.bot.max_history_per_chat),
+        extra_system_prompt=registry.system_prompt,
     )
 
 

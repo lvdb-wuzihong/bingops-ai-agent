@@ -136,6 +136,11 @@ bot:                           # P2-charter：接收平台事件转发（POST /f
   max_tool_iterations: 8                   # 工具调用轮上限，超限要求 LLM 基于已获取信息作答
   tool_result_max_chars: 2000              # 单次工具结果截断长度（token 控制）
   tool_allowlist: ~                        # ~ = 默认只读白名单（bot/tools.py）；仅可收窄，写工具永不开放
+  skills:                                  # 运行时技能（bot/skillregistry.py；白名单仍为上界，只能收窄）
+    enabled: true
+    dir: skills                            # 相对工作目录（容器内 /app/skills，随镜像打包）
+    prompt_budget_chars: 2400              # 方法论注入 system prompt 的总预算（token 控制）
+    per_skill_max_chars: 1200              # 单技能 SKILL.md 截断上限
 
 trend:                         # P1.5 趋势对比（昨日 vs 前 N 日均值，落"风险提示（趋势类）"）
   enabled: true

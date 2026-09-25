@@ -1,0 +1,9 @@
+# 运行时技能元数据（方法论正文在同目录 SKILL.md；tools 只能声明白名单子集，永不扩写）
+name: change-ticket
+description: 变更、工单与执行记录查询（变更上下文、工单时间线、jobs 执行、封禁窗口）
+tools:
+  - get_change_context
+  - list_tickets
+  - get_ticket_timeline
+  - list_job_executions
+  - list_freezes

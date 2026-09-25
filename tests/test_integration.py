@@ -3,7 +3,8 @@
 覆盖：
 - 巡检日报全链路（REST 取数 → 规则 → 线索 → HTML → OSS → 摘要，dry-run 落盘）；
 - 单应用失败隔离；趋势命中；LLM 叙事三态（成稿/篡改降级/断供降级）；
-- OSS 成功/失败；bot 接收平台转发事件（POST /feishu/events）→ agent → 出站。
+- OSS 成功/失败；bot 接收平台转发事件（POST /feishu/events）→ agent → 出站；
+- 运行时技能（skills/）注入 system prompt 与工具暴露面收窄。
 """
 
 from __future__ import annotations
@@ -377,6 +378,7 @@ def _write_test_config(
     oss_enabled: bool = False,
     gitlab_rest_enabled: bool = True,
     bot_mcp: dict[str, str] | None = None,
+    bot_skills: bool = False,
     prometheus_external: dict[str, Any] | None = None,
     prometheus_routes: dict[str, str] | None = None,
 ) -> None:
@@ -436,6 +438,11 @@ def _write_test_config(
                 else {}
             ),
         },
+        **(
+            {"bot": {"skills": {"enabled": True, "dir": str(REPO_ROOT / "skills")}}}
+            if bot_skills
+            else {}
+        ),
         "clues": {"enabled": True, "topology_depth": 2, "git_compare": True,
                   "per_anomaly_timeout_sec": 10},
         "query": {
@@ -801,7 +808,7 @@ async def test_bot_receives_platform_event(tmp_path, rest_start, bot_mcp_start, 
     config_path = tmp_path / "inspection.yaml"
     _write_test_config(
         config_path, rest, tmp_path / "out",
-        llm_base_url=llm_url, bot_mcp=bot_mcp,
+        llm_base_url=llm_url, bot_mcp=bot_mcp, bot_skills=True,
     )
 
     from inspection_agent.bot.server import build_agent
@@ -813,6 +820,9 @@ async def test_bot_receives_platform_event(tmp_path, rest_start, bot_mcp_start, 
     await pool.__aenter__()
     try:
         agent = await build_agent(config, pool)
+        # 运行时技能（skills/）已注入 system prompt（工具收窄由 list_business_apps 可用间接验证）
+        assert "技能指引" in agent.system_prompt
+        assert "cmdb-query" in agent.system_prompt
         app = create_app(config, pool=pool, agent=agent)
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://bot") as client:

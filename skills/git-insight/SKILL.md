@@ -1,0 +1,4 @@
+- "两个版本之间改了什么"用 compare（上一 tag..本次 tag）；单仓库近期活动用 list_commits。
+- 先 get_project 确认仓库存在与默认分支，再查提交/对比；repo_url 来自 CMDB 应用详情。
+- 对比结果引用 commit 短 SHA 与标题作为证据。
+- 未配置 GitLab 或无权限时如实说明 git 信息不可用，不猜测提交内容。

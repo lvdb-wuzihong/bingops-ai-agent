@@ -1,0 +1,12 @@
+# 运行时技能元数据（方法论正文在同目录 SKILL.md；tools 只能声明白名单子集，永不扩写）
+name: cmdb-query
+description: CMDB 应用与资源目录查询（定位应用/资源、详情、拓扑、总览）
+tools:
+  - list_business_apps
+  - get_app_overview
+  - find_app_by_resource
+  - search_resources
+  - get_resource_detail
+  - search_assets
+  - get_models_overview
+  - get_app_topology

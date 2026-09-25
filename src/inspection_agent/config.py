@@ -90,6 +90,16 @@ class LLMConfig:
 
 
 @dataclass(frozen=True)
+class BotSkillsConfig:
+    """bot 运行时技能（方法论 prompt 段 + 工具子集收窄；白名单仍为上界，只能收窄）。"""
+
+    enabled: bool = False
+    dir: str = "skills"              # 技能目录（相对工作目录；容器内 /app/skills 随镜像打包）
+    prompt_budget_chars: int = 2400  # 方法论注入 system prompt 的总预算（token 控制，红线 6）
+    per_skill_max_chars: int = 1200  # 单技能 SKILL.md 截断上限
+
+
+@dataclass(frozen=True)
 class BotConfig:
     """飞书聊天助手配置（P2-charter：接收平台转发 + 出站走平台 send_feishu_message）。"""
 
@@ -99,6 +109,7 @@ class BotConfig:
     max_tool_iterations: int = 8
     tool_result_max_chars: int = 2000
     tool_allowlist: dict[str, list[str]] | None = None  # None = 默认白名单；只能收窄
+    skills: BotSkillsConfig = field(default_factory=BotSkillsConfig)
 
 
 @dataclass(frozen=True)
@@ -350,6 +361,11 @@ def load_config(path: Path) -> AppConfig:
                 {str(k): [str(t) for t in v] for k, v in bot_raw["tool_allowlist"].items()}
                 if isinstance(bot_raw.get("tool_allowlist"), dict)
                 else None
+            ),
+            skills=(
+                _section(BotSkillsConfig, bot_raw["skills"])
+                if isinstance(bot_raw.get("skills"), dict)
+                else BotSkillsConfig()
             ),
         ),
     )

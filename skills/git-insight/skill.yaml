@@ -1,0 +1,7 @@
+# 运行时技能元数据（方法论正文在同目录 SKILL.md；tools 只能声明白名单子集，永不扩写）
+name: git-insight
+description: GitLab 仓库与提交查询（tag 对比、提交记录、项目信息）
+tools:
+  - compare
+  - list_commits
+  - get_project

@@ -172,3 +172,42 @@ async def test_load_tool_schemas_filters_writes():
     assert "prometheus__query_instant" in names
     assert "prometheus__execute_write" not in names
 
+
+async def test_load_tool_schemas_with_skill_filter():
+    """技能 tool_filter 非空时：未声明的白名单内工具不暴露（并集语义见 skillregistry）。"""
+
+    class FakeSession:
+        def __init__(self, tools: list[str]) -> None:
+            self._tools = tools
+
+        async def list_tools(self):
+            return SimpleNamespace(
+                tools=[
+                    SimpleNamespace(name=name, description="d", inputSchema={"type": "object"})
+                    for name in self._tools
+                ]
+            )
+
+    class FakeDiscoveryPool:
+        def __init__(self, per_server: dict[str, list[str]]) -> None:
+            self._per = per_server
+
+        def connections(self):
+            return {
+                server: SimpleNamespace(session=FakeSession(tools))
+                for server, tools in self._per.items()
+            }
+
+    pool = FakeDiscoveryPool({"bingops": ["list_business_apps", "list_tickets"]})
+    schemas = await load_tool_schemas(
+        pool, BotConfig(), tool_filter=frozenset({"list_business_apps"})
+    )
+    assert [s["function"]["name"] for s in schemas] == ["bingops__list_business_apps"]
+
+    # tool_filter=None → 不收窄，全白名单照常暴露
+    schemas = await load_tool_schemas(pool, BotConfig())
+    assert {s["function"]["name"] for s in schemas} == {
+        "bingops__list_business_apps",
+        "bingops__list_tickets",
+    }
+
