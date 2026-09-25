@@ -38,6 +38,8 @@ async def build_agent(config: AppConfig, pool: MCPServerPool) -> ChatAgent:
         name: str(cfg.options.get("group") or "").strip() or name
         for name, cfg in config.mcp_servers.items()
     }
+    if any(group != name for name, group in server_groups.items()):
+        logger.info("bot MCP 分组映射：%s", server_groups)
     schemas = await load_tool_schemas(
         pool, config.bot, tool_filter=registry.tool_filter, server_groups=server_groups
     )

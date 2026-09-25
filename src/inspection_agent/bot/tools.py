@@ -81,11 +81,14 @@ async def load_tool_schemas(
         allowed = allowlist.get(group) or allowlist.get(server_name, set())
         if not allowed or conn.session is None:
             if conn.session is not None:
-                # 连接正常但白名单交集为空：曾经两次静默失效（多实例改名、平台新工具），必须有声
+                # 连接正常但白名单交集为空：曾经两次静默失效（多实例改名、平台新工具），必须有声；
+                # 打出解析到的分组名，区分"映射未生效"与"分组被 tool_allowlist 收窄为空"
                 logger.warning(
-                    "bot 工具发现：server %s 连接正常但白名单交集为空（0 个工具暴露）——"
-                    "检查 server 名是否在 DEFAULT_ALLOWLIST、options.group 是否指向分组键",
+                    "bot 工具发现：server %s（解析分组 %s）连接正常但白名单交集为空"
+                    "（0 个工具暴露）——解析分组应为 DEFAULT_ALLOWLIST 键"
+                    "（如 prometheus/bingops/gitlab），且未被 bot.tool_allowlist 收窄为空",
                     server_name,
+                    group,
                 )
             continue
         try:
@@ -117,8 +120,9 @@ async def load_tool_schemas(
             )
             exposed += 1
         logger.info(
-            "bot 工具发现：server %s 暴露 %d/%d 个白名单内工具",
+            "bot 工具发现：server %s（分组 %s）暴露 %d/%d 个白名单内工具",
             server_name,
+            group,
             exposed,
             len(allowed),
         )
