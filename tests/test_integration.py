@@ -603,7 +603,24 @@ def build_llm_app(mode: str):
         else:
             payload = json.loads(messages[-1]["content"])
             message = {"role": "assistant", "content": _narrative_from_payload(payload, mode)}
-        response = json.dumps({"choices": [{"message": message}]}).encode()
+        # OpenAI SDK（ChatOpenAI 底层）要求完整 ChatCompletion schema，
+        # 缺 id/object/created/model/finish_reason 会在 pydantic 解析时报 ValidationError
+        response = json.dumps(
+            {
+                "id": "chatcmpl-mock",
+                "object": "chat.completion",
+                "created": 1700000000,
+                "model": "fake",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": message,
+                        "finish_reason": "tool_calls" if message.get("tool_calls") else "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            }
+        ).encode()
         await send({"type": "http.response.start", "status": 200,
                     "headers": [(b"content-type", b"application/json")]})
         await send({"type": "http.response.body", "body": response})
