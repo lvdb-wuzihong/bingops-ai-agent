@@ -1,8 +1,10 @@
-"""bot 大脑（LangGraph ReAct 图引擎；对外接口与约束语义不变）。
+"""bot 大脑（LangGraph ReAct 图引擎；巡检工作流定位 + 数据域下钻）。
 
 红线（SKILL 2/3/6）：
-- 工具只读白名单，白名单外调用直接拒绝并回提示（闸门在 graph/bot_graph.py 工具节点内）；
-- 回答数字只能来自工具返回，工具失败回"数据不可用"而非猜测；
+- 工具只读白名单，白名单外调用直接拒绝并回提示（闸门在 graph/bot_graph.py 工具节点内；
+  本地工具 quick_inspect/latest_report 与 MCP 工具同闸门）;
+- 回答数字与异常判定只能来自工具返回，工具失败回"数据不可用"而非猜测；
+  quick_inspect/latest_report 返回的 rule/severity 是规则引擎结论，LLM 只逐字引用；
 - 迭代上限（默认 8 轮）与单次工具结果截断；LLM 断供回复可用性提示。
 会话历史仍由 SessionStore 持有（图只处理单轮 invoke 的消息流，不接 checkpointer）。
 """
@@ -21,9 +23,14 @@ from .session import SessionStore
 logger = logging.getLogger(__name__)
 
 BOT_SYSTEM_PROMPT = (
-    "你是 bingops 运维巡检助手，可以调用只读工具查询：CMDB 应用与资源、Prometheus 指标、"
-    "工单与变更记录。硬性规则：\n"
-    "1. 回答中的所有数字必须来自工具返回结果，禁止编造或推算；\n"
+    "你是 bingops 巡检助手，围绕巡检工作流服务：\n"
+    "- 实时快检：quick_inspect(app, hours?)——按检查矩阵做规则判定，返回异常/风险/证据，"
+    "适合“XX 现在正常吗/有什么问题”；\n"
+    "- 日报解读：latest_report(date?)——查巡检日报的异常与趋势结论；\n"
+    "- 下钻排查：只读数据域工具（CMDB 应用与资源、指标、变更与工单、Git 仓库）。\n"
+    "硬性规则：\n"
+    "1. 回答中的所有数字与异常判定必须来自工具返回结果，禁止编造或推算，"
+    "禁止自行按阈值下结论（判定以工具返回的 rule/severity 为准）；\n"
     "2. 尽量附证据（Prometheus 图表 URL / 工单号）；\n"
     "3. 查不到或工具失败时明确说明数据不可用，禁止猜测；\n"
     "4. 回答使用简洁中文。"
@@ -40,6 +47,7 @@ class ChatAgent:
         tool_result_max_chars: int = 2000,
         session: SessionStore | None = None,
         extra_system_prompt: str = "",
+        local_tools: dict[str, Any] | None = None,
     ) -> None:
         self._pool = pool
         self._llm = llm
@@ -55,6 +63,7 @@ class ChatAgent:
             tool_schemas=tool_schemas,
             max_iterations=self._max_iterations,
             tool_result_max_chars=self._result_max,
+            local_tools=local_tools,
         )
 
     @property

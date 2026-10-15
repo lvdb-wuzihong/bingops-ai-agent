@@ -145,7 +145,7 @@ def _assemble(skills: list[Skill]) -> str:
     """技能 prompt 段组装：追加在 BOT_SYSTEM_PROMPT 之后的基础红线之外内容。"""
     if not skills:
         return ""
-    parts = ["", "## 技能指引（按数据域，仅约束方法，不改变基础红线）", ""]
+    parts = ["", "## 技能指引（按工作流与数据域，仅约束方法，不改变基础红线）", ""]
     for skill in skills:
         title = f"### {skill.name}：{skill.description}".rstrip("：")
         parts.extend((title, skill.prompt, ""))

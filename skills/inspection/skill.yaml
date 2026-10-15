@@ -1,0 +1,19 @@
+# 运行时技能元数据（方法论正文在同目录 SKILL.md；tools 只能声明白名单子集，永不扩写）。
+# quick_inspect / latest_report 是内置本地工具（bot/localtools.py），不经 MCP 白名单与
+# 技能 tool_filter 收窄，恒暴露——此处只声明下钻用的 MCP 裸名（对所有分组实例生效）。
+name: inspection
+description: 巡检工作流编排（实时快检、日报解读、异常下钻的方法论）
+tools:
+  - list_business_apps
+  - get_app_overview
+  - search_assets
+  - find_app_by_resource
+  - get_app_topology
+  - list_job_executions
+  - get_change_context
+  - list_tickets
+  - get_ticket_timeline
+  - query
+  - range_query
+  - label_values
+  - list_alerts

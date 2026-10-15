@@ -6,8 +6,9 @@
   tools → 未达上限回 agent ／ 达上限 → finalize（不再提供工具，强制基于已获取信息作答）→ END
 
 红线不因框架迁移松动（SKILL 2/6）：
-- 工具 schemas 只来自白名单交集 + 技能收窄的装配产物（bot/tools.py + skillregistry）；
-- 白名单外调用在工具节点内硬拒绝；工具执行走 mcpclient（bot 对接 bingops/prometheus
+- 工具 schemas 只来自白名单交集 + 技能收窄的装配产物 + 内置本地工具（bot/localtools.py，
+  非 MCP，名字同样受闸门约束）；
+- 白名单外调用在工具节点内硬拒绝；MCP 工具执行走 mcpclient（bot 对接 bingops/prometheus
   等多实例 MCP，多实例分组别名由装配层解析），框架层不直连任何工具实现；
 - 迭代上限（max_iterations）与结果截断（tool_result_max_chars）语义与旧 loop 一致。
 """
@@ -41,10 +42,15 @@ def build_bot_graph(
     tool_schemas: list[dict[str, Any]],
     max_iterations: int,
     tool_result_max_chars: int,
+    local_tools: dict[str, Any] | None = None,
 ) -> Any:
-    """组装 bot ReAct 图；llm 为 chat(messages, tools) 接口（LLMClient / 测试 Fake）。"""
+    """组装 bot ReAct 图；llm 为 chat(messages, tools) 接口（LLMClient / 测试 Fake）。
+
+    local_tools：内置本地工具注册表（bot/localtools.py，快检/日报读取等非 MCP 能力），
+    与 MCP 工具同一闸门（allowed_names 并集），仅执行路径不同。
+    """
     max_iterations = max(1, max_iterations)
-    allowed_names = {s["function"]["name"] for s in tool_schemas}
+    allowed_names = {s["function"]["name"] for s in tool_schemas} | set(local_tools or {})
 
     async def agent_node(state: BotState) -> dict[str, Any]:
         message = await llm.chat(state["messages"], tools=tool_schemas)
@@ -59,7 +65,9 @@ def build_bot_graph(
             {
                 "role": "tool",
                 "tool_call_id": str(call.get("id") or ""),
-                "content": await _execute(call, pool, allowed_names, tool_result_max_chars),
+                "content": await _execute(
+                    call, pool, allowed_names, tool_result_max_chars, local_tools
+                ),
             }
             for call in (last.get("tool_calls") or [])
         ]
@@ -96,10 +104,11 @@ async def _execute(
     pool: MCPServerPool,
     allowed_names: set[str],
     result_max_chars: int,
+    local_tools: dict[str, Any] | None = None,
 ) -> str:
-    """执行单个 tool_call：白名单拒绝 / 参数容错 / MCP 失败转提示 / 超长截断。
+    """执行单个 tool_call：白名单拒绝 / 参数容错 / 本地工具或 MCP 执行 / 失败转提示 / 超长截断。
 
-    原 ChatAgent._execute 语义原样迁移（闸门在工具节点内，红线 2）。
+    原 ChatAgent._execute 语义迁移（闸门在工具节点内，红线 2）；本地工具与 MCP 同闸门分流。
     """
     function = call.get("function") or {}
     name = str(function.get("name") or "")
@@ -113,14 +122,25 @@ async def _execute(
         return "错误：工具参数不是合法 JSON。"
     if not isinstance(arguments, dict):
         return "错误：工具参数必须是 JSON 对象。"
-    server, sep, bare = name.partition("__")
-    if not sep or not bare:
-        return f"错误：工具名 {name} 缺少 server 前缀。"
-    try:
-        conn = pool[server]
-        data = await conn.call_tool(bare, arguments)
-    except MCPError as exc:
-        return f"工具执行失败（数据不可用，请勿猜测）：{exc}"
+
+    if local_tools and name in local_tools:
+        # 内置本地工具（快检/日报读取）：确定性子流程，无 MCP 参与；handler 内部已
+        # 兜底为 error dict，此处仅防意外逃逸（与 MCP 失败转提示同语义）
+        try:
+            data = await local_tools[name].handler(arguments)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("本地工具 %s 执行失败", name)
+            return f"工具执行失败（数据不可用，请勿猜测）：{exc}"
+    else:
+        server, sep, bare = name.partition("__")
+        if not sep or not bare:
+            return f"错误：工具名 {name} 缺少 server 前缀。"
+        try:
+            conn = pool[server]
+            data = await conn.call_tool(bare, arguments)
+        except MCPError as exc:
+            return f"工具执行失败（数据不可用，请勿猜测）：{exc}"
+
     text = json.dumps(data, ensure_ascii=False, default=str)
     if len(text) > result_max_chars:
         text = text[:result_max_chars] + f"\n…（结果已截断，原始长度 {len(text)} 字符）"

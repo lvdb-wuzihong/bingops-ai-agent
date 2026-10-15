@@ -20,6 +20,7 @@ from ..config import AppConfig, McpServerConfig
 from ..llm.client import LLMClient
 from ..mcpclient import MCPServerPool
 from .agent import ChatAgent
+from .localtools import build_local_tools, local_tool_schemas
 from .outbound import send_reply
 from .session import SessionStore
 from .skillregistry import load_skills
@@ -48,6 +49,8 @@ async def build_agent(config: AppConfig, pool: MCPServerPool) -> ChatAgent:
     llm = LLMClient.from_config(config.llm)
     # 运行时技能：方法论 prompt 段 + 工具暴露面收窄（白名单仍为上界，fail-open）
     registry = load_skills(config.bot.skills, effective_allow_names(config.bot))
+    # 内置本地工具（快检/日报读取）：非 MCP，恒暴露，与 MCP 同闸门
+    local_tools = build_local_tools(config)
     # 多实例 MCP：group 别名指向白名单分组（如两台 VM 各起一个 prometheus-mcp）
     server_groups = resolve_server_groups(config.mcp_servers)
     if any(group != name for name, group in server_groups.items()):
@@ -55,6 +58,7 @@ async def build_agent(config: AppConfig, pool: MCPServerPool) -> ChatAgent:
     schemas = await load_tool_schemas(
         pool, config.bot, tool_filter=registry.tool_filter, server_groups=server_groups
     )
+    schemas = schemas + local_tool_schemas(local_tools)
     if registry.skills:
         logger.info(
             "bot 运行时技能就绪：%d 个（%s）",
@@ -69,6 +73,7 @@ async def build_agent(config: AppConfig, pool: MCPServerPool) -> ChatAgent:
         tool_result_max_chars=config.bot.tool_result_max_chars,
         session=SessionStore(config.bot.max_history_per_chat),
         extra_system_prompt=registry.system_prompt,
+        local_tools=local_tools,
     )
 
 

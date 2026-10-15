@@ -71,7 +71,12 @@
 1. **新数据能力优先加在平台 service 层**——平台 REST 与 MCP 工具同源于 service，
    两侧自动受益；禁止只在编排层单边实现后反推平台；
 2. 禁止 pipeline 复制 MCP 工具的聚合逻辑（如变更上下文聚合以平台 `change_context` 为唯一事实源）；
-3. bot 工具白名单以**部署版本 `tools/list` 交集**为准，白名单多列未实现工具无害但应注释标记。
+3. bot 工具白名单以**部署版本 `tools/list` 交集**为准，白名单多列未实现工具无害但应注释标记；
+4. bot 触发的**实时快检**（`pipeline/quickcheck.py`，quick_inspect 本地工具）属于
+   pipeline 数据路径：取数走 sources/ REST、判定复用规则引擎（红线 3），产物 JSON 由
+   LLM 逐字引用；bot 进程因此也需要 platform/external 端点与凭据可达
+   （部署约束，见 config/inspection.example.yaml bot 段注释）；
+   日报产物读取（latest_report 本地工具）走 OSS 只读（oss.read_report）。
 
 ## 3. 文档权威性
 

@@ -141,6 +141,8 @@ llm:                           # P1 叙事层（OpenAI 兼容 API；enabled=fals
 
 bot:                           # P2-charter：接收平台事件转发（POST /feishu/events）+ 出站走平台
   enabled: false
+  # 注意：bot 内置 quick_inspect 快检工具走 pipeline 数据路径（sources/ REST 直连），
+  # bot 进程也需要 platform/external.prometheus 的端点与环境变量凭据可达（双轨制，charter §2）
   port: 8080                   # 监听端口（K8S Service 暴露给平台回调；/healthz 探针）
   max_history_per_chat: 20                 # 每 chat 保留最近 N 条（内存态，重启即失）
   max_tool_iterations: 8                   # 工具调用轮上限，超限要求 LLM 基于已获取信息作答

@@ -123,3 +123,51 @@ async def test_chatagent_llm_down_returns_fallback_without_history_write():
     # 断供路径不写 assistant 回复进会话历史（与旧 loop 语义一致）
     history = agent._session.history("c")
     assert len(history) == 1 and history[0]["role"] == "user"
+
+
+# ---------------------------------------------------------------- 内置本地工具（快检/日报读取）
+
+
+async def test_local_tool_executes_and_feeds_back():
+    """本地工具与 MCP 同闸门：注册名可直接调用，结果 JSON 回传 LLM。"""
+    from inspection_agent.bot.localtools import LocalTool
+
+    async def echo_handler(args):
+        return {"echo": args.get("text")}
+
+    echo_schema = {
+        "type": "function",
+        "function": {"name": "echo", "parameters": {"type": "object"}},
+    }
+    llm = FakeLLM(
+        [
+            {"tool_calls": [tool_call("echo", '{"text": "hi"}')]},
+            {"content": "本地工具已执行"},
+        ]
+    )
+    graph = build_bot_graph(
+        llm=llm,
+        pool=FakePool({}),
+        tool_schemas=[SCHEMA],
+        max_iterations=8,
+        tool_result_max_chars=2000,
+        local_tools={"echo": LocalTool(echo_schema, echo_handler)},
+    )
+    result = await graph.ainvoke(initial_state())
+    assert result["answer"] == "本地工具已执行"
+    tool_messages = [m for m in result["messages"] if m.get("role") == "tool"]
+    assert '"echo": "hi"' in tool_messages[0]["content"]
+
+
+async def test_unregistered_bare_name_rejected():
+    """未注册的裸名（非本地工具、非 MCP 前缀）→ 白名单拒绝（闸门不含未注册名）。"""
+    graph, _ = make_graph(
+        [
+            {"tool_calls": [tool_call("mystery_tool")]},
+            {"content": "已拒绝"},
+        ],
+        {},
+    )
+    result = await graph.ainvoke(initial_state())
+    tool_messages = [m for m in result["messages"] if m.get("role") == "tool"]
+    assert "不在只读白名单" in tool_messages[0]["content"]

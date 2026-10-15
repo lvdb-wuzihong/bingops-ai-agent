@@ -813,6 +813,41 @@ async def test_multi_prometheus_routes_by_team(tmp_path, rest_start, monkeypatch
         second.stop()
 
 
+# ---------------------------------------------------------------- 巡检形态：快检工具（pipeline 数据路径）
+
+
+async def test_quickcheck_tool_against_rest(tmp_path, rest_start, monkeypatch):
+    """quick_inspect 端到端：bot 触发 → sources REST 采集 → evaluate_app 规则判定。
+
+    窗口取 2026-09-02 02:00-10:00（now 注入），同时覆盖指标规则与失败变更聚合。
+    """
+    monkeypatch.setenv("BINGOPS_AGENT_TOKEN", "test-jwt")
+    rest = await rest_start()
+    config_path = tmp_path / "inspection.yaml"
+    _write_test_config(config_path, rest, tmp_path / "out")
+
+    from inspection_agent.config import load_config
+    from inspection_agent.pipeline.quickcheck import quick_check
+    from inspection_agent.sources import build_sources
+
+    config = load_config(config_path)
+    result = await quick_check(
+        "订单中心",
+        config,
+        build_sources(config),
+        hours=8,
+        now=datetime(2026, 9, 2, 10, 0, tzinfo=timezone.utc),
+    )
+    assert result["app"]["name"] == "订单中心"
+    assert result["data_missing"] is None
+    cpu = next(a for a in result["anomalies"] if a["rule"] == "cpu_high")
+    assert cpu["observed"] == 85.0 and cpu["severity"] == "warning"
+    assert cpu["evidence_url"].startswith(rest["prometheus"])
+    failed = [a for a in result["anomalies"] if a["rule"] == "change_failed"]
+    assert failed, "窗口内失败变更应聚合为 change_failed"
+    assert result["metrics_overview"], "健康检查项应有一览行"
+
+
 # ---------------------------------------------------------------- P2-charter：bot HTTP 端点
 
 
@@ -837,9 +872,12 @@ async def test_bot_receives_platform_event(tmp_path, rest_start, bot_mcp_start, 
     await pool.__aenter__()
     try:
         agent = await build_agent(config, pool)
-        # 运行时技能（skills/）已注入 system prompt（工具收窄由 list_business_apps 可用间接验证）
+        # 运行时技能（skills/）已注入 system prompt（工具收窄由 list_business_apps 可用间接验证）；
+        # inspection 巡检工作流技能必须在预算内装载（五技能总量 ≤ prompt_budget_chars）
         assert "技能指引" in agent.system_prompt
         assert "cmdb-query" in agent.system_prompt
+        assert "inspection" in agent.system_prompt
+        assert "quick_inspect" in agent.system_prompt
         app = create_app(config, pool=pool, agent=agent)
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://bot") as client:
