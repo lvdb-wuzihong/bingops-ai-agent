@@ -44,4 +44,5 @@ Desktop.ini
 *.tmp
 *.orig
 
-
+#
+docs/diagrams/

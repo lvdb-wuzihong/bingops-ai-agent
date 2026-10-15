@@ -4,7 +4,7 @@
 - 平台 `feishu_event_service` 已完成验签/解密/命令分流（如 /ai 前缀），将属于 agent 的
   消息按规范化事件 POST 到本端点（fire-and-forget，失败仅平台侧记日志）；
 - 请求 body：{"event_id": "...", "chat_id": "...", "text": "..."}（schema 联调定稿）；
-- 编排层不持有 app_secret、不处理飞书协议；回复经平台 send_feishu_message 出站。
+- 编排层不持有 app_secret、不处理飞书协议；回复经平台飞书卡片/文本 MCP 工具出站。
 """
 
 from __future__ import annotations
@@ -21,7 +21,13 @@ from ..llm.client import LLMClient
 from ..mcpclient import MCPServerPool
 from .agent import ChatAgent
 from .localtools import build_local_tools, local_tool_schemas
-from .outbound import send_reply
+from .outbound import (
+    build_answer_card,
+    build_working_card,
+    send_card,
+    send_reply,
+    update_card,
+)
 from .session import SessionStore
 from .skillregistry import load_skills
 from .tools import effective_allow_names, load_tool_schemas
@@ -154,8 +160,12 @@ def create_app(
         chat_id: str, text: str,
     ) -> None:
         try:
+            # 一期卡片形态：占位卡（正在分析）→ 结果卡刷新；任一步失败降级纯文本
+            message_id = await send_card(pool, chat_id, build_working_card(), target_type)
             answer = await agent.answer(chat_id, text)
-            await send_reply(pool, chat_id, answer, target_type=target_type)
+            if message_id and await update_card(pool, message_id, build_answer_card(answer)):
+                return
+            await send_reply(pool, chat_id, answer, target_type)
         except Exception:  # noqa: BLE001 fire-and-forget：失败仅记日志，无重投
             logger.exception("bot 处理转发事件失败（chat=%s）", chat_id)
 
