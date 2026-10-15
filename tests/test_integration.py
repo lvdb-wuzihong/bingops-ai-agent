@@ -642,9 +642,20 @@ def _narrative_from_payload(payload: dict, mode: str) -> str:
             f" {a['metric']} 观测 {a['observed']}{thr}"
         )
         lines.append(f"  证据: {a['evidence_url']}")
+    changes = payload.get("changes_summary") or []
+    if changes:
+        change_lines = [
+            "  - {} {} {}（{}）".format(
+                c.get("app_name") or "未归集", c.get("tag") or "",
+                c.get("status") or "", c.get("ticket_no") or "无工单",
+            )
+            for c in changes
+        ]
+    else:
+        change_lines = ["  无"]
     lines += [
-        "三、风险提示：", "  无", "四、昨日变更回顾：",
-        "  " + str(payload.get("changes_summary") or "无"), "五、待办建议：", "  - 数据缺失补采",
+        "三、风险提示：", "  无", "四、昨日变更回顾：", *change_lines,
+        "五、待办建议：", "  - 数据缺失补采",
     ]
     if mode == "tamper":
         lines.append("  磁盘观测 99.9，需关注")
@@ -692,6 +703,8 @@ async def test_trend_risks_and_html_report(tmp_path, rest_start, monkeypatch):
     assert disk_trend["change_pct"] >= 20 and disk_trend["window_days"] == 7
     html = (report_dir / "report.html").read_text(encoding="utf-8")
     assert "趋势关注" in html and "<table>" in html
+    # 可选字段泄露回归：summary 为 None 时曾渲染出字面 <div>None</div>
+    assert "<div>None</div>" not in html
 
 
 async def test_oss_success_pushes_summary_with_link(

@@ -21,19 +21,24 @@ _CSS = (
     ".card{background:#f0f5ff;border:1px solid #c5d9f1;border-radius:6px;padding:10px 14px;"
     "margin:12px 0}"
     ".narrative{white-space:pre-wrap;background:#fafafa;border:1px solid #eee;border-radius:6px;"
-    "padding:12px;font-size:13px}"
+    "padding:12px;font-size:13px;word-break:break-all}"
     "table{border-collapse:collapse;width:100%;font-size:13px;margin:8px 0}"
-    "th,td{border:1px solid #ddd;padding:6px 10px;text-align:left;vertical-align:top}"
+    "th,td{border:1px solid #ddd;padding:6px 10px;text-align:left;vertical-align:top;"
+    "overflow-wrap:anywhere}"
     "th{background:#f5f6f7}"
     ".critical{color:#c0392b;font-weight:600}"
     ".warning{color:#e67e22;font-weight:600}"
     ".info{color:#2471a3}"
     ".up{color:#c0392b;font-weight:600}.down{color:#27ae60;font-weight:600}"
     "a{color:#2c5aa0;word-break:break-all}"
-    ".muted{color:#888;font-size:11px}"
+    ".muted{color:#888;font-size:11px;word-break:break-all}"
     ".clue{margin:2px 0;font-size:12px}"
     ".clue-type{display:inline-block;background:#eef3fb;border:1px solid #c5d9f1;"
     "border-radius:3px;padding:0 6px;margin-right:4px;color:#2c5aa0}"
+    # 异常表列宽下限：应用/资源/指标三列不被证据列挤成逐字换行
+    ".anomalies th:nth-child(2),.anomalies td:nth-child(2){min-width:76px}"
+    ".anomalies th:nth-child(3),.anomalies td:nth-child(3){min-width:100px}"
+    ".anomalies th:nth-child(4),.anomalies td:nth-child(4){min-width:72px}"
 )
 
 _SEVERITY_ORDER = {"critical": 0, "warning": 1, "info": 2}
@@ -50,9 +55,9 @@ def _clues_block(anomaly: dict) -> str:
         return "<div class='muted'>无线索</div>"
     parts = []
     for clue in clues:
-        ctype = _esc(clue.get("type"))
-        text = _esc(clue.get("text"))
-        evidence = _esc(clue.get("evidence_url"))
+        ctype = _esc(clue.get("type") or "")
+        text = _esc(clue.get("text") or "")
+        evidence = _esc(clue.get("evidence_url") or "")
         parts.append(
             f"<div class='clue'><span class='clue-type'>{ctype}</span> {text} "
             f"<a href='{evidence}'>证据</a></div>"
@@ -61,18 +66,19 @@ def _clues_block(anomaly: dict) -> str:
 
 
 def _anomaly_row(anomaly: dict) -> str:
-    severity = _esc(anomaly.get("severity"))
-    app_name = _esc(anomaly.get("app_name"))
-    resource = _esc(anomaly.get("resource_name"))
-    metric = _esc(anomaly.get("metric"))
+    severity = _esc(anomaly.get("severity") or "")
+    app_name = _esc(anomaly.get("app_name") or "")
+    resource = _esc(anomaly.get("resource_name") or "")
+    metric = _esc(anomaly.get("metric") or "")
     observed = _esc(fmt(anomaly.get("observed")))
     threshold = _esc(fmt(anomaly.get("threshold"))) if anomaly.get("threshold") is not None else "-"
     if anomaly.get("duration_minutes") is not None:
         duration = _esc(fmt(anomaly.get("duration_minutes"))) + " 分钟"
     else:
         duration = "-"
-    evidence = _esc(anomaly.get("evidence_url"))
-    summary = _esc(anomaly.get("summary"))
+    # 可选字段先兜 None 再转义：直接 str(None) 会泄漏字面 "None"（曾渲染出 <div>None</div>）
+    evidence = _esc(anomaly.get("evidence_url") or "")
+    summary = _esc(anomaly.get("summary") or "")
     extra = f"<div>{summary}</div>" if summary else ""
     clues = _clues_block(anomaly)
     return (
@@ -93,8 +99,8 @@ def _trend_row(risk: dict) -> str:
     direction = str(risk.get("direction") or "up")
     arrow = "&#9650;" if direction == "up" else "&#9660;"
     change = _esc(fmt(risk.get("change_pct")))
-    text = _esc(risk.get("trend"))
-    evidence = _esc(risk.get("evidence_url"))
+    text = _esc(risk.get("trend") or "")
+    evidence = _esc(risk.get("evidence_url") or "")
     return (
         f"<tr><td>{app_name}</td><td>{resource}</td><td>{metric}</td>"
         f"<td>{observed}</td><td>{base}</td>"
@@ -136,7 +142,7 @@ def render_html(struct: dict, narrative: str | None = None) -> str:
     if anomalies:
         rows = "".join(_anomaly_row(a) for a in anomalies)
         parts.append(
-            "<table><tr><th>级别</th><th>应用</th><th>资源</th><th>指标</th>"
+            "<table class='anomalies'><tr><th>级别</th><th>应用</th><th>资源</th><th>指标</th>"
             "<th>观测</th><th>阈值</th><th>持续</th><th>证据</th><th>线索</th></tr>"
             + rows
             + "</table>"
